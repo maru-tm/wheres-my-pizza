@@ -42,6 +42,10 @@ func main() {
 	}
 	defer postgres.Close()
 
+	if err := postgres.RunMigrations(ctx, "migrations"); err != nil {
+		log.Fatalf("❌ ошибка миграций: %v", err)
+	}
+
 	rmq, err := rabbitmq.New(cfg.RabbitMQ)
 	if err != nil {
 		log.Fatalf("❌ ошибка подключения к RabbitMQ: %v", err)
@@ -55,7 +59,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/orders", orderHandler.CreateOrder)
 
-	// HTTP Server
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
 		Handler: mux,

@@ -1,41 +1,51 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
+	"restaurant-system/pkg/yaml"
 )
 
 type Config struct {
-	Database DatabaseConfig `json:"database"`
-	RabbitMQ RabbitMQConfig `json:"rabbitmq"`
+	Database DatabaseConfig
+	RabbitMQ RabbitMQConfig
 }
 
 type DatabaseConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Database string `json:"database"`
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
 }
 
 type RabbitMQConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
+	Host     string
+	Port     int
+	User     string
+	Password string
 }
 
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := yaml.ParseFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read config file: %w", err)
+		return nil, fmt.Errorf("не удалось прочитать yaml: %w", err)
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("invalid config format: %w", err)
+	cfg := &Config{
+		Database: DatabaseConfig{
+			Host:     data["database"]["host"],
+			Port:     yaml.Atoi(data["database"]["port"]),
+			User:     data["database"]["user"],
+			Password: data["database"]["password"],
+			Database: data["database"]["database"],
+		},
+		RabbitMQ: RabbitMQConfig{
+			Host:     data["rabbitmq"]["host"],
+			Port:     yaml.Atoi(data["rabbitmq"]["port"]),
+			User:     data["rabbitmq"]["user"],
+			Password: data["rabbitmq"]["password"],
+		},
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
