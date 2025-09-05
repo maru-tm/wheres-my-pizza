@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"restaurant-system/internal/config"
@@ -32,7 +31,6 @@ func New(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("PostgreSQL не отвечает: %w", err)
 	}
 
-	log.Println("✅ Подключение к PostgreSQL успешно")
 	return &DB{Pool: pool}, nil
 }
 
@@ -75,7 +73,6 @@ func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 		}
 
 		if exists {
-			fmt.Printf("⏩ Пропуск миграции (уже применена): %s\n", fname)
 			continue
 		}
 
@@ -90,8 +87,6 @@ func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 			continue
 		}
 
-		fmt.Printf("▶ Выполняется миграция: %s\n", fname)
-
 		_, err = d.Pool.Exec(ctx, query)
 		if err != nil {
 			return fmt.Errorf("ошибка при выполнении миграции %s: %w", fname, err)
@@ -103,6 +98,5 @@ func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 		}
 	}
 
-	fmt.Println("✅ Все миграции успешно применены")
 	return nil
 }
