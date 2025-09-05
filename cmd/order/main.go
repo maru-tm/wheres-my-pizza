@@ -57,7 +57,13 @@ func main() {
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/orders", orderHandler.CreateOrder)
+	mux.HandleFunc("/orders", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		orderHandler.CreateOrderHandler(w, r)
+	})
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),

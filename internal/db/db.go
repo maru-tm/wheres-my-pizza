@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"io/ioutil"
 	"log"
 	"os"
@@ -10,8 +11,6 @@ import (
 	"restaurant-system/internal/config"
 	"sort"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DB struct {
@@ -44,6 +43,17 @@ func (d *DB) Close() {
 }
 
 func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
+	_, err := d.Pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			id serial PRIMARY KEY,
+			filename text UNIQUE NOT NULL,
+			applied_at timestamptz NOT NULL DEFAULT now()
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("не удалось создать schema_migrations: %w", err)
+	}
+
 	files, err := ioutil.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать директорию миграций: %w", err)
@@ -55,12 +65,21 @@ func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 			sqlFiles = append(sqlFiles, f.Name())
 		}
 	}
-
 	sort.Strings(sqlFiles)
 
 	for _, fname := range sqlFiles {
-		path := filepath.Join(migrationsDir, fname)
+		var exists bool
+		err = d.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename=$1)", fname).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("ошибка при проверке миграции %s: %w", fname, err)
+		}
 
+		if exists {
+			fmt.Printf("⏩ Пропуск миграции (уже применена): %s\n", fname)
+			continue
+		}
+
+		path := filepath.Join(migrationsDir, fname)
 		sqlBytes, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("ошибка чтения файла %s: %w", path, err)
@@ -76,6 +95,11 @@ func (d *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 		_, err = d.Pool.Exec(ctx, query)
 		if err != nil {
 			return fmt.Errorf("ошибка при выполнении миграции %s: %w", fname, err)
+		}
+
+		_, err = d.Pool.Exec(ctx, "INSERT INTO schema_migrations (filename) VALUES ($1)", fname)
+		if err != nil {
+			return fmt.Errorf("ошибка при записи в schema_migrations %s: %w", fname, err)
 		}
 	}
 
