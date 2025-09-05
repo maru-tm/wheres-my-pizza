@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var validName = regexp.MustCompile(`^[a-zA-Z\s'-]+$`)
+
 type OrderType string
 
 const (
@@ -65,15 +67,34 @@ func (o *Order) Validate() error {
 	if len(o.CustomerName) < 1 || len(o.CustomerName) > 100 {
 		return errors.New("customer_name must be 1-100 characters")
 	}
-	validName := regexp.MustCompile(`^[a-zA-Z\s'-]+$`)
 	if !validName.MatchString(o.CustomerName) {
 		return errors.New("customer_name contains invalid characters")
 	}
 
 	switch o.Type {
-	case OrderTypeDineIn, OrderTypeTakeout, OrderTypeDelivery:
+	case OrderTypeDineIn:
+		if o.TableNumber == nil || *o.TableNumber < 1 || *o.TableNumber > 100 {
+			return fmt.Errorf("table_number must be set and between 1 and 100 for dine_in orders")
+		}
+		if o.DeliveryAddress != nil {
+			return fmt.Errorf("delivery_address must not be present for dine_in orders")
+		}
+	case OrderTypeDelivery:
+		if o.DeliveryAddress == nil || len(*o.DeliveryAddress) < 10 {
+			return fmt.Errorf("delivery_address must be set and at least 10 characters for delivery orders")
+		}
+		if o.TableNumber != nil {
+			return fmt.Errorf("table_number must not be present for delivery orders")
+		}
+	case OrderTypeTakeout:
+		if o.TableNumber != nil {
+			return fmt.Errorf("table_number must not be present for takeout orders")
+		}
+		if o.DeliveryAddress != nil {
+			return fmt.Errorf("delivery_address must not be present for takeout orders")
+		}
 	default:
-		return fmt.Errorf("invalid order_type: %s", o.Type)
+		return fmt.Errorf("unsupported order type: %s", o.Type)
 	}
 
 	if len(o.Items) < 1 || len(o.Items) > 20 {

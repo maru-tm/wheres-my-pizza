@@ -48,22 +48,6 @@ func (r *OrderRepository) CreateOrder(ctx context.Context, tx pgx.Tx, order *mod
 	return id, nil
 }
 
-func (r *OrderRepository) GetNextOrderSequence(ctx context.Context, date string) (int, error) {
-	var maxSeq int
-
-	query := `
-		SELECT COALESCE(MAX(CAST(SPLIT_PART(number, '_', 3) AS INTEGER)), 0)
-		FROM orders
-		WHERE TO_CHAR(created_at, 'YYYYMMDD') = $1
-	`
-	err := r.db.QueryRow(ctx, query, date).Scan(&maxSeq)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get max order sequence: %w", err)
-	}
-
-	return maxSeq + 1, nil
-}
-
 func (r *OrderRepository) CreateItem(ctx context.Context, tx pgx.Tx, item *model.OrderItem) (int, error) {
 	query := `
 		INSERT INTO order_items
@@ -110,4 +94,23 @@ func (r *OrderRepository) CreateLog(ctx context.Context, tx pgx.Tx, logEntry *mo
 	}
 
 	return id, nil
+}
+
+func (r *OrderRepository) GetNextOrderSequence(ctx context.Context, tx pgx.Tx, date string) (int, error) {
+	var seq int
+
+	query := `
+        INSERT INTO order_sequences (seq_date, last_seq)
+        VALUES ($1, 1)
+        ON CONFLICT (seq_date)
+        DO UPDATE SET last_seq = order_sequences.last_seq + 1
+        RETURNING last_seq
+    `
+
+	err := tx.QueryRow(ctx, query, date).Scan(&seq)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next order sequence: %w", err)
+	}
+
+	return seq, nil
 }

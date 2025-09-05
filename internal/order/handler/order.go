@@ -30,13 +30,14 @@ func (h *OrderHandler) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 		Status:       model.StatusReceived,
 		Items:        []model.OrderItem{},
 	}
-	for i, item := range req.Items {
-		order.Items[i] = model.OrderItem{
+	for _, item := range req.Items {
+		order.Items = append(order.Items, model.OrderItem{
 			Name:     item.Name,
 			Quantity: item.Quantity,
 			Price:    item.Price,
-		}
+		})
 	}
+
 	created, err := h.service.CreateOrder(r.Context(), &order)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

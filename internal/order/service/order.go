@@ -16,7 +16,7 @@ type PGInterface interface {
 	CreateItem(ctx context.Context, tx pgx.Tx, item *model.OrderItem) (int, error)
 	CreateLog(ctx context.Context, tx pgx.Tx, logEntry *model.OrderStatusLog) (int, error)
 
-	GetNextOrderSequence(ctx context.Context, date string) (int, error)
+	GetNextOrderSequence(ctx context.Context, tx pgx.Tx, date string) (int, error)
 }
 type RabbitMQInterface interface{}
 type OrderService struct {
@@ -33,32 +33,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		return nil, err
 	}
 
-	switch order.Type {
-	case model.OrderTypeDineIn:
-		if order.TableNumber == nil || *order.TableNumber < 1 || *order.TableNumber > 100 {
-			return nil, fmt.Errorf("table_number must be set and between 1 and 100 for dine_in orders")
-		}
-		if order.DeliveryAddress != nil {
-			return nil, fmt.Errorf("delivery_address must not be present for dine_in orders")
-		}
-	case model.OrderTypeDelivery:
-		if order.DeliveryAddress == nil || len(*order.DeliveryAddress) < 10 {
-			return nil, fmt.Errorf("delivery_address must be set and at least 10 characters for delivery orders")
-		}
-		if order.TableNumber != nil {
-			return nil, fmt.Errorf("table_number must not be present for delivery orders")
-		}
-	case model.OrderTypeTakeout:
-		if order.TableNumber != nil {
-			return nil, fmt.Errorf("table_number must not be present for takeout orders")
-		}
-		if order.DeliveryAddress != nil {
-			return nil, fmt.Errorf("delivery_address must not be present for takeout orders")
-		}
-	default:
-		return nil, fmt.Errorf("unsupported order type: %s", order.Type)
-	}
-
 	var total float64
 	for _, item := range order.Items {
 		total += item.Price * float64(item.Quantity)
@@ -73,25 +47,28 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		order.Priority = 1
 	}
 
-	today := time.Now().UTC().Format("20060102") // YYYYMMDD
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback(ctx)
+			panic(p)
+		} else if err != nil {
+			tx.Rollback(ctx)
+		}
+	}()
 
-	seq, err := s.repo.GetNextOrderSequence(ctx, today)
+	today := time.Now().UTC().Format("20060102")
+
+	seq, err := s.repo.GetNextOrderSequence(ctx, tx, today)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get next order sequence: %w", err)
 	}
 
 	orderNumber := fmt.Sprintf("ORD_%s_%03d", today, seq)
 	order.Number = orderNumber
-
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback(ctx)
-		}
-	}()
 
 	orderID, err := s.repo.CreateOrder(ctx, tx, order)
 	if err != nil {
