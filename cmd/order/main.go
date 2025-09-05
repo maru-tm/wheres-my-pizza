@@ -4,18 +4,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
-
 	"restaurant-system/internal/config"
 	"restaurant-system/internal/db"
+	"restaurant-system/internal/logger"
 	"restaurant-system/internal/order/handler"
 	"restaurant-system/internal/order/repository"
 	"restaurant-system/internal/order/service"
 	"restaurant-system/internal/rabbitmq"
+	"syscall"
 )
 
 func main() {
@@ -27,35 +26,46 @@ func main() {
 	maxConcurrent := flag.Int("max-concurrent", 50, "Maximum number of concurrent orders to process")
 	flag.Parse()
 
+	requestID := "startup-" + fmt.Sprint(os.Getpid())
+
 	if *mode != "order-service" {
-		log.Fatal("must run with --mode=order-service")
+		logger.Log(logger.ERROR, "order-service", "startup_failed", "must run with --mode=order-service", requestID, nil, nil)
+		return
 	}
 
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		logger.Log(logger.ERROR, "order-service", "config_load_failed", "failed to load config", requestID, nil, err)
+		return
 	}
 
 	postgres, err := db.New(ctx, cfg.Database)
 	if err != nil {
-		log.Fatalf("❌ ошибка подключения к PostgreSQL: %v", err)
+		logger.Log(logger.ERROR, "order-service", "db_connection_failed", "failed to connect to PostgreSQL", requestID, nil, err)
+		return
 	}
 	defer postgres.Close()
 
 	if err := postgres.RunMigrations(ctx, "migrations"); err != nil {
-		log.Fatalf("❌ ошибка миграций: %v", err)
+		logger.Log(logger.ERROR, "order-service", "db_migrations_failed", "failed to run migrations", requestID, nil, err)
+		return
 	}
+	logger.Log(logger.INFO, "order-service", "db_connected", "Connected to PostgreSQL database", requestID, nil, nil)
 
 	rmq, err := rabbitmq.New(cfg.RabbitMQ)
 	if err != nil {
-		log.Fatalf("❌ ошибка подключения к RabbitMQ: %v", err)
+		logger.Log(logger.ERROR, "order-service", "rabbitmq_connection_failed", "failed to connect to RabbitMQ", requestID, nil, err)
+		return
 	}
+	logger.Log(logger.INFO, "order-service", "rabbitmq_connected", "Connected to RabbitMQ exchange 'orders_topic'", requestID, nil, nil)
 
 	orderRepo := repository.NewOrderRepository(postgres.Pool)
 	orderRMQ, err := repository.NewOrderPublisher(rmq)
 	if err != nil {
-		log.Fatal(err)
+		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", requestID, nil, err)
+		return
 	}
+
 	orderService := service.NewOrderService(orderRepo, orderRMQ)
 	orderHandler := handler.NewOrderHandler(orderService)
 
@@ -77,14 +87,23 @@ func main() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
-		log.Println("🛑 Получен сигнал завершения, останавливаем Order Service...")
+		logger.Log(logger.INFO, "order-service", "shutdown_initiated", "received termination signal, shutting down...", requestID, nil, nil)
 		server.Shutdown(ctx)
 	}()
 
-	log.Printf("✅ Order Service started on port %d (max_concurrent=%d)\n", *port, *maxConcurrent)
+	logger.Log(logger.INFO, "order-service", "service_started",
+		fmt.Sprintf("Order Service started on port %d", *port),
+		requestID,
+		map[string]interface{}{
+			"port":           *port,
+			"max_concurrent": *maxConcurrent,
+		},
+		nil,
+	)
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
+		logger.Log(logger.ERROR, "order-service", "server_error", "server failed", requestID, nil, err)
 	}
-	rmq.Close()
-	log.Println("Order Service stopped gracefully")
+
+	logger.Log(logger.INFO, "order-service", "service_stopped", "Order Service stopped gracefully", requestID, nil, nil)
 }
