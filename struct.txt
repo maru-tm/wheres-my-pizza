@@ -25,6 +25,7 @@ restaurant-system/
 │
 │   ├── kitchen/          # Бизнес-логика Kitchen Service
 │   │   ├── repository/
+│   │   ├── worker/
 │   │   ├── service/
 │   │   ├── handler/
 │   │   └── model/
