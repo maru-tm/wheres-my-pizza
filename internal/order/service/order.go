@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"restaurant-system/internal/order/model"
-	"restaurant-system/internal/rabbitmq"
 	"time"
 )
 
@@ -18,13 +17,17 @@ type PGInterface interface {
 
 	GetNextOrderSequence(ctx context.Context, tx pgx.Tx, date string) (int, error)
 }
-type RabbitMQInterface interface{}
-type OrderService struct {
-	repo PGInterface
-	rmq  *rabbitmq.RabbitMQ
+
+type RabbitMQInterface interface {
+	PublishOrder(ctx context.Context, order *model.Order) error
 }
 
-func NewOrderService(r PGInterface, rmq *rabbitmq.RabbitMQ) *OrderService {
+type OrderService struct {
+	repo PGInterface
+	rmq  RabbitMQInterface
+}
+
+func NewOrderService(r PGInterface, rmq RabbitMQInterface) *OrderService {
 	return &OrderService{repo: r, rmq: rmq}
 }
 
@@ -98,6 +101,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	if err := s.rmq.PublishOrder(ctx, order); err != nil {
+		return order, fmt.Errorf("order saved but failed to publish message: %w", err)
 	}
 
 	return order, nil

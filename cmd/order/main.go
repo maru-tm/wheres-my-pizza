@@ -50,10 +50,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ ошибка подключения к RabbitMQ: %v", err)
 	}
-	defer rmq.Close()
 
 	orderRepo := repository.NewOrderRepository(postgres.Pool)
-	orderService := service.NewOrderService(orderRepo, rmq)
+	orderRMQ, err := repository.NewOrderPublisher(rmq)
+	if err != nil {
+		log.Fatal(err)
+	}
+	orderService := service.NewOrderService(orderRepo, orderRMQ)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()
@@ -82,6 +85,6 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
-
+	rmq.Close()
 	log.Println("Order Service stopped gracefully")
 }
