@@ -1,13 +1,10 @@
 package model
 
-import "time"
+import (
+	"errors"
+)
 
-type Worker struct {
-	ID              int       `json:"id"`
-	CreatedAt       time.Time `json:"created_at"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	Status          string    `json:"status"`
-	LastSeen        time.Time `json:"last_seen"`
-	OrdersProcessed int       `json:"orders_processed"`
-}
+var (
+	ErrWorkerAlreadyOnline = errors.New("worker already online")
+	ErrAlreadyCooking      = errors.New("order already cooking")
+)

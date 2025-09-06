@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"context"
 	"fmt"
 	"restaurant-system/internal/config"
 
@@ -47,4 +48,16 @@ func (r *RabbitMQ) Close() {
 	if r.conn != nil {
 		_ = r.conn.Close()
 	}
+}
+
+func (r *RabbitMQ) Publish(ctx context.Context, exchange, routingKey string, body []byte) error {
+	return r.channel.PublishWithContext(ctx,
+		exchange,   // exchange
+		routingKey, // routing key
+		false,      // mandatory
+		false,      // immediate
+		amqp091.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		})
 }

@@ -2,8 +2,8 @@ package tracking
 
 import (
 	"context"
-	"restaurant-system/internal/db"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"restaurant-system/internal/rabbitmq"
 )
 
-func Run(ctx context.Context, pg *db.DB, rmq *rabbitmq.RabbitMQ, port int, rid string) {}
+func Run(ctx context.Context, pg *pgxpool.Pool, rmq *rabbitmq.RabbitMQ, port int, rid string) {}

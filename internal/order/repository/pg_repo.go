@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"restaurant-system/internal/order/model"
+	"time"
 )
 
 type OrderRepository struct {
@@ -113,4 +114,53 @@ func (r *OrderRepository) GetNextOrderSequence(ctx context.Context, tx pgx.Tx, d
 	}
 
 	return seq, nil
+}
+
+func (r *OrderRepository) GetStatus(ctx context.Context, orderID int) (model.OrderStatus, error) {
+	var status model.OrderStatus
+
+	query := `SELECT status FROM orders WHERE id = $1`
+
+	err := r.db.QueryRow(ctx, query, orderID).Scan(&status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", fmt.Errorf("order with id %d not found", orderID)
+		}
+		return "", fmt.Errorf("failed to get order status: %w", err)
+	}
+
+	return status, nil
+}
+
+func (r *OrderRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orderID int, status model.OrderStatus, workerName string) error {
+	query := `
+		UPDATE orders
+		SET status = $1,
+		    processed_by = $2,
+		    completed_at = CASE WHEN $1 = 'ready' THEN $3 ELSE completed_at END,
+		    updated_at = now()
+		WHERE id = $4
+	`
+	_, err := tx.Exec(ctx, query, status, workerName, time.Now(), orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order status: %w", err)
+	}
+	return nil
+}
+
+func (r *OrderRepository) InsertStatusLog(ctx context.Context, tx pgx.Tx, log model.OrderStatusLog) error {
+	query := `
+		INSERT INTO order_status_log (order_id, status, changed_by, notes)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := tx.Exec(ctx, query,
+		log.OrderID,
+		log.Status,
+		log.ChangedBy,
+		log.Notes,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert order status log: %w", err)
+	}
+	return nil
 }

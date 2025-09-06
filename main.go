@@ -67,15 +67,15 @@ func main() {
 
 	switch *mode {
 	case "order-service":
-		order.Run(ctx, pg, rmq, *orderPort, *maxConcurrent, requestID)
+		order.Run(ctx, pg.Pool, rmq, *orderPort, *maxConcurrent, requestID)
 	case "kitchen-worker":
 		if *workerName == "" {
 			fmt.Println("Error: --worker-name is required for kitchen-worker")
 			os.Exit(1)
 		}
-		kitchen.Run(ctx, pg, rmq, *workerName, *orderTypes, *prefetch, *heartbeat, requestID)
+		kitchen.Run(ctx, pg.Pool, rmq, *workerName, *orderTypes, *prefetch, *heartbeat, requestID)
 	case "tracking-service":
-		tracking.Run(ctx, pg, rmq, *trackingPort, requestID)
+		tracking.Run(ctx, pg.Pool, rmq, *trackingPort, requestID)
 	case "notification-subscriber":
 		notification.Run(ctx, rmq, requestID)
 	default:

@@ -3,8 +3,8 @@ package order
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
-	"restaurant-system/internal/db"
 	"restaurant-system/internal/logger"
 	"restaurant-system/internal/order/handler"
 	"restaurant-system/internal/order/repository"
@@ -12,9 +12,9 @@ import (
 	"restaurant-system/internal/rabbitmq"
 )
 
-func Run(ctx context.Context, pg *db.DB, rmq *rabbitmq.RabbitMQ, port int, maxConcurrent int, rid string) {
-	orderRepo := repository.NewOrderRepository(pg.Pool)
-	orderRMQ, err := repository.NewOrderPublisher(rmq)
+func Run(ctx context.Context, pg *pgxpool.Pool, rmq *rabbitmq.RabbitMQ, port int, maxConcurrent int, rid string) {
+	orderRepo := repository.NewOrderRepository(pg)
+	orderRMQ, err := repository.NewPublisher(rmq)
 	if err != nil {
 		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", rid, nil, err)
 		return

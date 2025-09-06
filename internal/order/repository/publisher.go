@@ -5,23 +5,19 @@ import (
 	"encoding/json"
 	"restaurant-system/internal/order/model"
 	"restaurant-system/internal/rabbitmq"
-
-	"github.com/rabbitmq/amqp091-go"
 )
 
-type OrderPublisher struct {
-	ch         *amqp091.Channel
+type Publisher struct {
+	rmq        *rabbitmq.RabbitMQ
 	exchange   string
 	routingKey string
 }
 
-func NewOrderPublisher(r *rabbitmq.RabbitMQ) (*OrderPublisher, error) {
+func NewPublisher(r *rabbitmq.RabbitMQ) (*Publisher, error) {
 	exchange := "orders_exchange"
 	routingKey := "orders.created"
 
-	ch := r.Channel()
-
-	err := ch.ExchangeDeclare(
+	err := r.Channel().ExchangeDeclare(
 		exchange, // name
 		"direct", // type
 		true,     // durable
@@ -34,26 +30,18 @@ func NewOrderPublisher(r *rabbitmq.RabbitMQ) (*OrderPublisher, error) {
 		return nil, err
 	}
 
-	return &OrderPublisher{
-		ch:         ch,
+	return &Publisher{
+		rmq:        r,
 		exchange:   exchange,
 		routingKey: routingKey,
 	}, nil
 }
 
-func (p *OrderPublisher) PublishOrder(ctx context.Context, order *model.Order) error {
+func (p *Publisher) PublishOrder(ctx context.Context, order *model.Order) error {
 	body, err := json.Marshal(order)
 	if err != nil {
 		return err
 	}
 
-	return p.ch.PublishWithContext(ctx,
-		p.exchange,   // exchange
-		p.routingKey, // routing key
-		false,        // mandatory
-		false,        // immediate
-		amqp091.Publishing{
-			ContentType: "application/json",
-			Body:        body,
-		})
+	return p.rmq.Publish(ctx, p.exchange, p.routingKey, body)
 }
