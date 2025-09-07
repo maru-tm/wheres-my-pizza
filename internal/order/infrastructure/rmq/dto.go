@@ -1,4 +1,4 @@
-package repository
+package rmq
 
 import "restaurant-system/internal/order/model"
 

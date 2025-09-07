@@ -10,10 +10,10 @@ import (
 )
 
 type WorkerRepo interface {
-	FindStatus(ctx context.Context, name string) (string, error)
-	Insert(ctx context.Context, name, workerType string) error
-	UpdateOnline(ctx context.Context, name string) error
-	IncrementOrdersProcessed(ctx context.Context, name string) error
+	GetStatus(ctx context.Context, name string) (string, error)
+	Create(ctx context.Context, name, workerType string) error
+	SetOnline(ctx context.Context, name string) error
+	IncrementProcessedOrders(ctx context.Context, name string) error
 }
 
 type OrderRepo interface {
@@ -32,21 +32,21 @@ func NewKitchenService(wRepo WorkerRepo, oRepo OrderRepo) *KitchenService {
 	return &KitchenService{wRepo: wRepo, oRepo: oRepo}
 }
 
-func (s *KitchenService) RegisterWorker(ctx context.Context, name, workerType string) error {
-	status, err := s.wRepo.FindStatus(ctx, name)
+func (s *KitchenService) RegisterWorker(ctx context.Context, workerName, workerType string) error {
+	status, err := s.wRepo.GetStatus(ctx, workerName)
 	if err != nil {
 		return err
 	}
 
 	if status == "" {
-		return s.wRepo.Insert(ctx, name, workerType)
+		return s.wRepo.Create(ctx, workerName, workerType)
 	}
 
 	if status == "online" {
 		return workerModel.ErrWorkerAlreadyOnline
 	}
 
-	return s.wRepo.UpdateOnline(ctx, name)
+	return s.wRepo.SetOnline(ctx, workerName)
 }
 
 func (s *KitchenService) StartCooking(ctx context.Context, orderID int, workerName string, notes string, rid string) error {
@@ -82,6 +82,7 @@ func (s *KitchenService) StartCooking(ctx context.Context, orderID int, workerNa
 	if err != nil {
 		return fmt.Errorf("failed to insert log: %w", err)
 	}
+
 	return tx.Commit(ctx)
 }
 
@@ -118,9 +119,9 @@ func (s *KitchenService) CompleteOrder(ctx context.Context, orderID int, workerN
 	if err != nil {
 		return fmt.Errorf("failed to insert log: %w", err)
 	}
-	err = s.wRepo.IncrementOrdersProcessed(ctx, workerName)
+	err = s.wRepo.IncrementProcessedOrders(ctx, workerName)
 	if err != nil {
-		return fmt.Errorf("failed to increment worker stats: %w", err)
+		return fmt.Errorf("failed to increment rmq stats: %w", err)
 	}
 	return tx.Commit(ctx)
 }

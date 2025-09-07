@@ -1,4 +1,4 @@
-package worker
+package rmq
 
 import (
 	"context"
@@ -8,12 +8,12 @@ import (
 	"restaurant-system/internal/rabbitmq"
 )
 
-type Publisher struct {
+type StatusPublisher struct {
 	rmq      *rabbitmq.RabbitMQ
 	exchange string
 }
 
-func NewPublisher(r *rabbitmq.RabbitMQ) (*Publisher, error) {
+func NewStatusPublisher(r *rabbitmq.RabbitMQ) (*StatusPublisher, error) {
 	exchange := "notifications_fanout"
 
 	err := r.Channel().ExchangeDeclare(
@@ -29,19 +29,20 @@ func NewPublisher(r *rabbitmq.RabbitMQ) (*Publisher, error) {
 		return nil, err
 	}
 
-	return &Publisher{
+	return &StatusPublisher{
 		rmq:      r,
 		exchange: exchange,
 	}, nil
 }
 
-func (p *Publisher) PublishStatusUpdate(ctx context.Context, orderID int, oldStatus, newStatus, worker string) error {
+func (p *StatusPublisher) PublishUpdatedStatus(ctx context.Context, msg StatusUpdateMessage) error {
 	event := map[string]interface{}{
-		"order_id":   orderID,
-		"old_status": oldStatus,
-		"new_status": newStatus,
-		"changed_by": worker,
-		"timestamp":  time.Now().UTC(),
+		"order_number":         msg.OrderNumber,
+		"old_status":           msg.OldStatus,
+		"new_status":           msg.NewStatus,
+		"changed_by":           msg.ChangedBy,
+		"timestamp":            time.Now().UTC(),
+		"estimated_completion": msg.EstimatedCompletion,
 	}
 
 	body, err := json.Marshal(event)

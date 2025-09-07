@@ -7,20 +7,21 @@ import (
 	"net/http"
 	"restaurant-system/internal/logger"
 	"restaurant-system/internal/order/handler"
-	"restaurant-system/internal/order/repository"
+	"restaurant-system/internal/order/infrastructure/pg"
+	"restaurant-system/internal/order/infrastructure/rmq"
 	"restaurant-system/internal/order/service"
 	"restaurant-system/internal/rabbitmq"
 )
 
-func Run(ctx context.Context, pg *pgxpool.Pool, rmq *rabbitmq.RabbitMQ, port int, maxConcurrent int, rid string) {
-	orderRepo := repository.NewOrderRepository(pg)
-	orderRMQ, err := repository.NewPublisher(rmq)
+func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ, port int, maxConcurrent int, rid string) {
+	orderRepo := pg.NewOrderRepository(pgxPool)
+	orderPublisher, err := rmq.NewOrderPublisher(rabbitmq)
 	if err != nil {
 		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", rid, nil, err)
 		return
 	}
 
-	orderService := service.NewOrderService(orderRepo, orderRMQ)
+	orderService := service.NewOrderService(orderRepo, orderPublisher)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()

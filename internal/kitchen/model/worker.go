@@ -5,6 +5,6 @@ import (
 )
 
 var (
-	ErrWorkerAlreadyOnline = errors.New("worker already online")
+	ErrWorkerAlreadyOnline = errors.New("rmq already online")
 	ErrAlreadyCooking      = errors.New("order already cooking")
 )

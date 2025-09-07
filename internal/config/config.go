@@ -40,10 +40,10 @@ func Load(path string) (*Config, error) {
 			Database: data["database"]["database"],
 		},
 		RabbitMQ: RabbitMQConfig{
-			Host:     data["rabbitmq"]["host"],
-			Port:     yaml.Atoi(data["rabbitmq"]["port"]),
-			User:     data["rabbitmq"]["user"],
-			Password: data["rabbitmq"]["password"],
+			Host:     data["rmq"]["host"],
+			Port:     yaml.Atoi(data["rmq"]["port"]),
+			User:     data["rmq"]["user"],
+			Password: data["rmq"]["password"],
 		},
 	}
 

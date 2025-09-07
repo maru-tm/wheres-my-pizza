@@ -1,4 +1,4 @@
-package repository
+package rmq
 
 import (
 	"context"
@@ -7,13 +7,13 @@ import (
 	"restaurant-system/internal/rabbitmq"
 )
 
-type Publisher struct {
+type OrderPublisher struct {
 	rmq        *rabbitmq.RabbitMQ
 	exchange   string
 	routingKey string
 }
 
-func NewPublisher(r *rabbitmq.RabbitMQ) (*Publisher, error) {
+func NewOrderPublisher(r *rabbitmq.RabbitMQ) (*OrderPublisher, error) {
 	exchange := "orders_exchange"
 	routingKey := "orders.created"
 
@@ -30,14 +30,14 @@ func NewPublisher(r *rabbitmq.RabbitMQ) (*Publisher, error) {
 		return nil, err
 	}
 
-	return &Publisher{
+	return &OrderPublisher{
 		rmq:        r,
 		exchange:   exchange,
 		routingKey: routingKey,
 	}, nil
 }
 
-func (p *Publisher) PublishOrder(ctx context.Context, order *model.Order) error {
+func (p *OrderPublisher) PublishCreatedOrder(ctx context.Context, order *model.Order) error {
 	body, err := json.Marshal(order)
 	if err != nil {
 		return err

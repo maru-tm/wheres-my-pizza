@@ -21,13 +21,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mode := flag.String("mode", "", "Service mode (order-service, kitchen-worker, tracking-service, notification-subscriber)")
+	mode := flag.String("mode", "", "Service mode (order-service, kitchen-rmq, tracking-service, notification-subscriber)")
 
 	orderPort := flag.Int("port", 3000, "HTTP port for order service")
 	maxConcurrent := flag.Int("max-concurrent", 10, "Maximum number of concurrent requests")
 
-	workerName := flag.String("worker-name", "", "Unique kitchen worker name")
-	orderTypes := flag.String("order-types", "", "Comma-separated list of order types for this worker")
+	workerName := flag.String("rmq-name", "", "Unique kitchen rmq name")
+	orderTypes := flag.String("order-types", "", "Comma-separated list of order types for this rmq")
 	prefetch := flag.Int("prefetch", 1, "RabbitMQ prefetch count")
 	heartbeat := flag.Int("heartbeat-interval", 30, "Heartbeat interval in seconds")
 
@@ -68,9 +68,9 @@ func main() {
 	switch *mode {
 	case "order-service":
 		order.Run(ctx, pg.Pool, rmq, *orderPort, *maxConcurrent, requestID)
-	case "kitchen-worker":
+	case "kitchen-rmq":
 		if *workerName == "" {
-			fmt.Println("Error: --worker-name is required for kitchen-worker")
+			fmt.Println("Error: --rmq-name is required for kitchen-rmq")
 			os.Exit(1)
 		}
 		kitchen.Run(ctx, pg.Pool, rmq, *workerName, *orderTypes, *prefetch, *heartbeat, requestID)
