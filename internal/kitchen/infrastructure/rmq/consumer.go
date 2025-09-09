@@ -2,6 +2,7 @@ package rmq
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/rabbitmq/amqp091-go"
 	"restaurant-system/internal/rabbitmq"
@@ -71,14 +72,36 @@ func NewOrderConsumer(r *rabbitmq.RabbitMQ, workerName string) (*OrderConsumer, 
 	}, nil
 }
 
-func (c *OrderConsumer) Consume(ctx context.Context) (*OrderMessage, error) {
-	// TODO: implement consumer
-	return nil, nil
+func (c *OrderConsumer) Consume(ctx context.Context) (*OrderMessage, uint64, error) {
+	msgs, err := c.ch.Consume(
+		c.queue,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	select {
+	case msg := <-msgs:
+		var order OrderMessage
+		if err := json.Unmarshal(msg.Body, &order); err != nil {
+			return nil, msg.DeliveryTag, err
+		}
+		return &order, msg.DeliveryTag, nil
+
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	}
 }
 
 func (c *OrderConsumer) Ack(deliveryTag uint64) error {
-	return nil
+	return c.ch.Ack(deliveryTag, false)
 }
 func (c *OrderConsumer) Nack(deliveryTag uint64, requeue bool) error {
-	return nil
+	return c.ch.Nack(deliveryTag, false, requeue)
 }

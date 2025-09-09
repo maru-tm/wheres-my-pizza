@@ -19,8 +19,8 @@ type WorkerRepo interface {
 type OrderRepo interface {
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 
-	GetStatus(ctx context.Context, orderID int) (orderModel.OrderStatus, error)
-	UpdateStatus(ctx context.Context, tx pgx.Tx, orderID int, status orderModel.OrderStatus, workerName string) error
+	GetByNumber(ctx context.Context, tx pgx.Tx, orderNumber string) (*orderModel.Order, error)
+	UpdateStatus(ctx context.Context, tx pgx.Tx, orderNumber string, status orderModel.OrderStatus, workerName string) error
 	InsertStatusLog(ctx context.Context, tx pgx.Tx, log orderModel.OrderStatusLog) error
 }
 type KitchenService struct {
@@ -49,7 +49,7 @@ func (s *KitchenService) RegisterWorker(ctx context.Context, workerName, workerT
 	return s.wRepo.SetOnline(ctx, workerName)
 }
 
-func (s *KitchenService) StartCooking(ctx context.Context, orderID int, workerName string, notes string, rid string) error {
+func (s *KitchenService) StartCooking(ctx context.Context, orderNumber string, workerName string, notes string, rid string) error {
 	tx, err := s.oRepo.BeginTx(ctx)
 	if err != nil {
 		logger.Log(logger.ERROR, "order-service", "db_transaction_failed", "failed to begin transaction", rid,
@@ -64,17 +64,17 @@ func (s *KitchenService) StartCooking(ctx context.Context, orderID int, workerNa
 			tx.Rollback(ctx)
 		}
 	}()
-	currentStatus, err := s.oRepo.GetStatus(ctx, orderID)
-	if currentStatus == "cooking" {
+	order, err := s.oRepo.GetByNumber(ctx, tx, orderNumber)
+	if order.Status == orderModel.StatusCooking {
 		return workerModel.ErrAlreadyCooking
 	}
-	err = s.oRepo.UpdateStatus(ctx, tx, orderID, orderModel.StatusCooking, workerName)
+	err = s.oRepo.UpdateStatus(ctx, tx, orderNumber, orderModel.StatusCooking, workerName)
 	if err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
 	log := orderModel.OrderStatusLog{
-		OrderID:   orderID,
-		Status:    currentStatus,
+		OrderID:   order.ID,
+		Status:    orderModel.StatusCooking,
 		ChangedBy: workerName,
 		Notes:     &notes,
 	}
@@ -86,7 +86,7 @@ func (s *KitchenService) StartCooking(ctx context.Context, orderID int, workerNa
 	return tx.Commit(ctx)
 }
 
-func (s *KitchenService) CompleteOrder(ctx context.Context, orderID int, workerName string, notes string, rid string) error {
+func (s *KitchenService) CompleteOrder(ctx context.Context, orderNumber string, workerName string, notes string, rid string) error {
 	tx, err := s.oRepo.BeginTx(ctx)
 	if err != nil {
 		logger.Log(logger.ERROR, "order-service", "db_transaction_failed", "failed to begin transaction", rid,
@@ -101,17 +101,17 @@ func (s *KitchenService) CompleteOrder(ctx context.Context, orderID int, workerN
 			tx.Rollback(ctx)
 		}
 	}()
-	currentStatus, err := s.oRepo.GetStatus(ctx, orderID)
-	if currentStatus == "cooking" {
+	order, err := s.oRepo.GetByNumber(ctx, tx, orderNumber)
+	if order.Status == "cooking" {
 		return workerModel.ErrAlreadyCooking
 	}
-	err = s.oRepo.UpdateStatus(ctx, tx, orderID, orderModel.StatusCompleted, workerName)
+	err = s.oRepo.UpdateStatus(ctx, tx, orderNumber, orderModel.StatusCompleted, workerName)
 	if err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
 	log := orderModel.OrderStatusLog{
-		OrderID:   orderID,
-		Status:    currentStatus,
+		OrderID:   order.ID,
+		Status:    orderModel.StatusCompleted,
 		ChangedBy: workerName,
 		Notes:     &notes,
 	}

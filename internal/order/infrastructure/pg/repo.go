@@ -116,15 +116,43 @@ func (r *OrderRepository) GetNextOrderSequence(ctx context.Context, tx pgx.Tx, d
 	return seq, nil
 }
 
-func (r *OrderRepository) GetStatus(ctx context.Context, orderID int) (model.OrderStatus, error) {
+func (r *OrderRepository) GetByNumber(ctx context.Context, tx pgx.Tx, orderNumber string) (*model.Order, error) {
+	query := `SELECT id, number, customer_name, type, table_number, delivery_address, 
+	                 total_amount, priority, status, processed_by, completed_at, 
+	                 created_at, updated_at
+	          FROM orders WHERE number = $1`
+
+	var order model.Order
+	err := tx.QueryRow(ctx, query, orderNumber).Scan(
+		&order.ID,
+		&order.Number,
+		&order.CustomerName,
+		&order.Type,
+		&order.TableNumber,
+		&order.DeliveryAddress,
+		&order.TotalAmount,
+		&order.Priority,
+		&order.Status,
+		&order.ProcessedBy,
+		&order.CompletedAt,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order by number: %w", err)
+	}
+	return &order, nil
+}
+
+func (r *OrderRepository) GetStatus(ctx context.Context, orderNumber string) (model.OrderStatus, error) {
 	var status model.OrderStatus
 
-	query := `SELECT status FROM orders WHERE id = $1`
+	query := `SELECT status FROM orders WHERE number = $1`
 
-	err := r.db.QueryRow(ctx, query, orderID).Scan(&status)
+	err := r.db.QueryRow(ctx, query, orderNumber).Scan(&status)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return "", fmt.Errorf("order with id %d not found", orderID)
+			return "", fmt.Errorf("order with id %d not found", orderNumber)
 		}
 		return "", fmt.Errorf("failed to get order status: %w", err)
 	}
@@ -132,7 +160,7 @@ func (r *OrderRepository) GetStatus(ctx context.Context, orderID int) (model.Ord
 	return status, nil
 }
 
-func (r *OrderRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orderID int, status model.OrderStatus, workerName string) error {
+func (r *OrderRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orderNumber string, status model.OrderStatus, workerName string) error {
 	query := `
 		UPDATE orders
 		SET status = $1,
@@ -141,7 +169,7 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orderID i
 		    updated_at = now()
 		WHERE id = $4
 	`
-	_, err := tx.Exec(ctx, query, status, workerName, time.Now(), orderID)
+	_, err := tx.Exec(ctx, query, status, workerName, time.Now(), orderNumber)
 	if err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
