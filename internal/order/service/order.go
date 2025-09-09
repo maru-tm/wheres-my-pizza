@@ -19,16 +19,16 @@ type PGInterface interface {
 	GetNextOrderSequence(ctx context.Context, tx pgx.Tx, date string) (int, error)
 }
 
-type RabbitMQInterface interface {
-	PublishOrder(ctx context.Context, order *model.Order) error
+type OrderPublisher interface {
+	PublishCreatedOrder(ctx context.Context, order *model.Order) error
 }
 
 type OrderService struct {
 	repo PGInterface
-	rmq  RabbitMQInterface
+	rmq  OrderPublisher
 }
 
-func NewOrderService(r PGInterface, rmq RabbitMQInterface) *OrderService {
+func NewOrderService(r PGInterface, rmq OrderPublisher) *OrderService {
 	return &OrderService{repo: r, rmq: rmq}
 }
 
@@ -128,7 +128,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	if err := s.rmq.PublishOrder(ctx, order); err != nil {
+	if err := s.rmq.PublishCreatedOrder(ctx, order); err != nil {
 		logger.Log(logger.ERROR, "order-service", "rabbitmq_publish_failed", "failed to publish order", rid,
 			map[string]interface{}{"order_number": order.Number, "priority": order.Priority}, err)
 		return order, fmt.Errorf("order saved but failed to publish message: %w", err)
