@@ -4,60 +4,89 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode/utf8"
 )
 
 var ValidationError = errors.New("validation error")
-var validName = regexp.MustCompile(`^[a-zA-Z\s'-]+$`)
 
 func (o *Order) Validate() error {
-	if len(o.CustomerName) < 1 || len(o.CustomerName) > 100 {
-		return errors.New("customer_name must be 1-100 characters")
+	var validationErrors []string
+
+	if o.CustomerName == "" {
+		validationErrors = append(validationErrors, "customer_name is required")
+	} else if utf8.RuneCountInString(o.CustomerName) > 100 {
+		validationErrors = append(validationErrors, "customer_name must be 100 characters or less")
+	} else if !isValidName(o.CustomerName) {
+		validationErrors = append(validationErrors, "customer_name contains invalid characters")
 	}
-	if !validName.MatchString(o.CustomerName) {
-		return errors.New("customer_name contains invalid characters")
+
+	switch o.Type {
+	case OrderTypeDineIn, OrderTypeTakeout, OrderTypeDelivery:
+	default:
+		validationErrors = append(validationErrors, "order_type must be one of: dine_in, takeout, delivery")
 	}
 
 	switch o.Type {
 	case OrderTypeDineIn:
-		if o.TableNumber == nil || *o.TableNumber < 1 || *o.TableNumber > 100 {
-			return fmt.Errorf("table_number must be set and between 1 and 100 for dine_in orders")
+		if o.TableNumber == nil {
+			validationErrors = append(validationErrors, "table_number is required for dine_in orders")
+		} else if *o.TableNumber < 1 || *o.TableNumber > 100 {
+			validationErrors = append(validationErrors, "table_number must be between 1 and 100")
 		}
 		if o.DeliveryAddress != nil {
-			return fmt.Errorf("delivery_address must not be present for dine_in orders")
+			validationErrors = append(validationErrors, "delivery_address must not be present for dine_in orders")
 		}
+
 	case OrderTypeDelivery:
-		if o.DeliveryAddress == nil || len(*o.DeliveryAddress) < 10 {
-			return fmt.Errorf("delivery_address must be set and at least 10 characters for delivery orders")
+		if o.DeliveryAddress == nil {
+			validationErrors = append(validationErrors, "delivery_address is required for delivery orders")
+		} else if utf8.RuneCountInString(*o.DeliveryAddress) < 10 {
+			validationErrors = append(validationErrors, "delivery_address must be at least 10 characters")
 		}
 		if o.TableNumber != nil {
-			return fmt.Errorf("table_number must not be present for delivery orders")
+			validationErrors = append(validationErrors, "table_number must not be present for delivery orders")
 		}
+
 	case OrderTypeTakeout:
 		if o.TableNumber != nil {
-			return fmt.Errorf("table_number must not be present for takeout orders")
+			validationErrors = append(validationErrors, "table_number must not be present for takeout orders")
 		}
 		if o.DeliveryAddress != nil {
-			return fmt.Errorf("delivery_address must not be present for takeout orders")
+			validationErrors = append(validationErrors, "delivery_address must not be present for takeout orders")
 		}
-	default:
-		return fmt.Errorf("unsupported order type: %s", o.Type)
 	}
 
-	if len(o.Items) < 1 || len(o.Items) > 20 {
-		return errors.New("items must contain between 1 and 20 items")
+	if len(o.Items) == 0 {
+		validationErrors = append(validationErrors, "items must contain at least 1 item")
+	} else if len(o.Items) > 20 {
+		validationErrors = append(validationErrors, "items cannot contain more than 20 items")
 	}
 
-	for _, item := range o.Items {
-		if len(item.Name) < 1 || len(item.Name) > 50 {
-			return fmt.Errorf("item name must be 1-50 characters: %s", item.Name)
+	for i, item := range o.Items {
+		if item.Name == "" {
+			validationErrors = append(validationErrors, fmt.Sprintf("items[%d].name is required", i))
+		} else if utf8.RuneCountInString(item.Name) > 50 {
+			validationErrors = append(validationErrors, fmt.Sprintf("items[%d].name must be 50 characters or less", i))
 		}
+
 		if item.Quantity < 1 || item.Quantity > 10 {
-			return fmt.Errorf("item quantity must be between 1 and 10: %d", item.Quantity)
+			validationErrors = append(validationErrors, fmt.Sprintf("items[%d].quantity must be between 1 and 10", i))
 		}
+
 		if item.Price < 0.01 || item.Price > 999.99 {
-			return fmt.Errorf("item price must be between 0.01 and 999.99: %.2f", item.Price)
+			validationErrors = append(validationErrors, fmt.Sprintf("items[%d].price must be between 0.01 and 999.99", i))
 		}
+	}
+
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("%w: %s", ValidationError, strings.Join(validationErrors, "; "))
 	}
 
 	return nil
+}
+
+func isValidName(name string) bool {
+	match, _ := regexp.MatchString(`^[a-zA-Z\s\-']+$`, name)
+	return match
 }

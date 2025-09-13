@@ -1,0 +1,20 @@
+- **Добавить User Service**
+- **MVP-функции:**
+    - Регистрация / вход
+    - Создание заказа (формы)
+    - Просмотр статуса заказа (realtime / poll)
+    - Базовые уведомления
+    - Экран истории заказов
+- **Бонусы:**
+    - Push-уведомления
+    - Offline retry
+    - Screenshots / animations
+    - Demo video
+- **Backend:**
+    - Endpoints для авторизации
+    - Endpoint для создания заказа
+    - Endpoint для получения статуса
+    - Endpoint для регистрации push-token
+    - Настроить токены и CORS
+- **Frontend:**
+    - Добавить мобильный интерфейс с помощью **React Native** (**Expo** framework)

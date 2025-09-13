@@ -1,0 +1,10 @@
+curl -X POST http://localhost:3000/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+        "customer_name": "Jane Doe",
+        "order_type": "takeout",
+        "items": [
+          {"name": "Margherita Pizza", "quantity": 1, "price": 15.99},
+          {"name": "Caesar Salad", "quantity": 1, "price": 8.99}
+        ]
+      }'

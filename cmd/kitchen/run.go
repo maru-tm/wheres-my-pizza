@@ -2,44 +2,120 @@ package kitchen
 
 import (
 	"context"
-	"errors"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"fmt"
 	"os"
-	workerRepository "restaurant-system/internal/kitchen/infrastructure/pg"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"restaurant-system/internal/kitchen/infrastructure/pg"
 	"restaurant-system/internal/kitchen/infrastructure/rmq"
-	"restaurant-system/internal/kitchen/model"
 	"restaurant-system/internal/kitchen/service"
-	"restaurant-system/internal/logger"
-	orderRepository "restaurant-system/internal/order/infrastructure/pg"
-	"restaurant-system/internal/rabbitmq"
+	"restaurant-system/pkg/logger"
+	"restaurant-system/pkg/rabbitmq"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ, workerName, types string, prefetch, heartbeat int, requestID string) {
-	orderRepo := orderRepository.NewOrderRepository(pgxPool)
-	workerRepo := workerRepository.NewWorkerRepository(pgxPool)
-	workerService := service.NewKitchenService(workerRepo, orderRepo)
-
-	if err := workerService.RegisterWorker(ctx, workerName, "kitchen-rmq"); err != nil {
-		if errors.Is(err, model.ErrWorkerAlreadyOnline) {
-			logger.Log(logger.ERROR, "kitchen-rmq", "worker_registration_failed",
-				"rmq already online with this name", requestID,
-				map[string]interface{}{"worker_name": workerName}, err)
-			os.Exit(1)
-		}
-		logger.Log(logger.ERROR, "kitchen-rmq", "worker_registration_failed",
-			"failed to register rmq", requestID, nil, err)
-		os.Exit(1)
-	}
-	consumer, err := rmq.NewOrderConsumer(rabbitmq, workerName)
-	if err != nil {
-		logger.Log(logger.ERROR, "kitchen-service", "order_consumer_init_failed", "failed to initialize order consumer", requestID, nil, err)
-		os.Exit(1)
-	}
+func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ, workerName string, orderTypes []string, prefetch int, heartbeatInterval int, rid string) {
+	workerRepo := pg.NewWorkerRepository(pgxPool)
+	orderRepo := pg.NewOrderRepository(pgxPool)
 	statusPublisher, err := rmq.NewStatusPublisher(rabbitmq)
 	if err != nil {
-		logger.Log(logger.ERROR, "kitchen-service", "order_consumer_init_failed", "failed to initialize status publisher", requestID, nil, err)
+		logger.Log(logger.ERROR, "kitchen-worker", "status_publisher_init_failed", "failed to initialize status publisher", rid, nil, err)
+		return
+	}
+
+	kitchenService := service.NewKitchenService(workerRepo, orderRepo, statusPublisher)
+
+	worker, err := kitchenService.RegisterWorker(ctx, workerName, orderTypes)
+	if err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "worker_registration_failed", "failed to register worker", rid,
+			map[string]interface{}{"worker_name": workerName}, err)
 		os.Exit(1)
 	}
-	kitchenWorker := service.NewKitchenWorker(workerService, consumer, statusPublisher, workerName)
 
+	logger.Log(logger.INFO, "kitchen-worker", "worker_registered", "worker registered successfully", rid,
+		map[string]interface{}{
+			"worker_name":  worker.Name,
+			"worker_type":  worker.Type,
+			"order_types":  orderTypes,
+			"prefetch":     prefetch,
+			"heartbeat_ms": heartbeatInterval * 1000,
+		}, nil)
+
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := kitchenService.SendHeartbeat(ctx, worker.ID); err != nil {
+					logger.Log(logger.ERROR, "kitchen-worker", "heartbeat_failed", "failed to send heartbeat", rid,
+						map[string]interface{}{"worker_id": worker.ID}, err)
+				} else {
+					logger.Log(logger.DEBUG, "kitchen-worker", "heartbeat_sent", "heartbeat sent successfully", rid,
+						map[string]interface{}{"worker_id": worker.ID}, nil)
+				}
+			case <-heartbeatCtx.Done():
+				return
+			}
+		}
+	}()
+
+	// Create message consumer
+	consumer, err := rmq.NewOrderConsumer(rabbitmq, prefetch)
+	if err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "consumer_init_failed", "failed to initialize consumer", rid, nil, err)
+		stopHeartbeat()
+		return
+	}
+
+	// Start consuming messages
+	msgs, err := consumer.ConsumeOrders(ctx)
+	if err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "consume_failed", "failed to start consuming messages", rid, nil, err)
+		stopHeartbeat()
+		return
+	}
+
+	// Handle graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		logger.Log(logger.INFO, "kitchen-worker", "shutdown_initiated", "received termination signal", rid, nil, nil)
+		stopHeartbeat()
+
+		// Mark worker as offline
+		if err := kitchenService.MarkWorkerOffline(ctx, worker.ID); err != nil {
+			logger.Log(logger.ERROR, "kitchen-worker", "shutdown_failed", "failed to mark worker offline", rid,
+				map[string]interface{}{"worker_id": worker.ID}, err)
+		}
+
+		os.Exit(0)
+	}()
+
+	// Process messages
+	for msg := range msgs {
+		processCtx := context.WithValue(ctx, "request_id", fmt.Sprintf("msg-%d", time.Now().UnixNano()))
+
+		if err := kitchenService.ProcessOrder(processCtx, worker, msg); err != nil {
+			logger.Log(logger.ERROR, "kitchen-worker", "order_processing_failed", "failed to process order", rid,
+				map[string]interface{}{"order_number": msg.OrderNumber}, err)
+
+			// Nack the message to requeue it
+			if err := consumer.NackMessage(msg.DeliveryTag, true); err != nil {
+				logger.Log(logger.ERROR, "kitchen-worker", "nack_failed", "failed to nack message", rid, nil, err)
+			}
+		} else {
+			// Ack the message
+			if err := consumer.AckMessage(msg.DeliveryTag); err != nil {
+				logger.Log(logger.ERROR, "kitchen-worker", "ack_failed", "failed to ack message", rid, nil, err)
+			}
+		}
+	}
 }

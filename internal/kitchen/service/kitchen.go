@@ -3,125 +3,203 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	workerModel "restaurant-system/internal/kitchen/model"
-	"restaurant-system/internal/logger"
-	orderModel "restaurant-system/internal/order/model"
+	"time"
+
+	"restaurant-system/internal/kitchen/infrastructure/rmq"
+	"restaurant-system/internal/kitchen/model"
+	"restaurant-system/pkg/logger"
 )
 
-type WorkerRepo interface {
-	GetStatus(ctx context.Context, name string) (string, error)
-	Create(ctx context.Context, name, workerType string) error
-	SetOnline(ctx context.Context, name string) error
-	IncrementProcessedOrders(ctx context.Context, name string) error
+type WorkerRepository interface {
+	CreateOrUpdateWorker(ctx context.Context, name string, workerType string, orderTypes []string) (*model.Worker, error)
+	UpdateWorkerHeartbeat(ctx context.Context, id int) error
+	MarkWorkerOffline(ctx context.Context, id int) error
+	IncrementOrdersProcessed(ctx context.Context, id int) error
 }
 
-type OrderRepo interface {
-	BeginTx(ctx context.Context) (pgx.Tx, error)
-
-	GetByNumber(ctx context.Context, tx pgx.Tx, orderNumber string) (*orderModel.Order, error)
-	UpdateStatus(ctx context.Context, tx pgx.Tx, orderNumber string, status orderModel.OrderStatus, workerName string) error
-	InsertStatusLog(ctx context.Context, tx pgx.Tx, log orderModel.OrderStatusLog) error
+type OrderRepository interface {
+	UpdateOrderStatus(ctx context.Context, orderNumber string, status string, processedBy string) error
+	CreateStatusLog(ctx context.Context, orderNumber string, status string, changedBy string, notes *string) error
+	GetOrderByNumber(ctx context.Context, orderNumber string) (*model.Order, error)
 }
+
+type StatusPublisher interface {
+	PublishStatusUpdate(ctx context.Context, update *rmq.StatusUpdateMessage) error
+}
+
 type KitchenService struct {
-	wRepo WorkerRepo
-	oRepo OrderRepo
+	workerRepo WorkerRepository
+	orderRepo  OrderRepository
+	publisher  StatusPublisher
 }
 
-func NewKitchenService(wRepo WorkerRepo, oRepo OrderRepo) *KitchenService {
-	return &KitchenService{wRepo: wRepo, oRepo: oRepo}
+func NewKitchenService(wr WorkerRepository, or OrderRepository, sp StatusPublisher) *KitchenService {
+	return &KitchenService{
+		workerRepo: wr,
+		orderRepo:  or,
+		publisher:  sp,
+	}
 }
 
-func (s *KitchenService) RegisterWorker(ctx context.Context, workerName, workerType string) error {
-	status, err := s.wRepo.GetStatus(ctx, workerName)
+func (s *KitchenService) RegisterWorker(ctx context.Context, name string, orderTypes []string) (*model.Worker, error) {
+	workerType := "general"
+	if len(orderTypes) > 0 {
+		workerType = "specialized"
+	}
+
+	worker, err := s.workerRepo.CreateOrUpdateWorker(ctx, name, workerType, orderTypes)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to register worker: %w", err)
 	}
 
-	if status == "" {
-		return s.wRepo.Create(ctx, workerName, workerType)
-	}
-
-	if status == "online" {
-		return workerModel.ErrWorkerAlreadyOnline
-	}
-
-	return s.wRepo.SetOnline(ctx, workerName)
+	return worker, nil
 }
 
-func (s *KitchenService) StartCooking(ctx context.Context, orderNumber string, workerName string, notes string, rid string) error {
-	tx, err := s.oRepo.BeginTx(ctx)
-	if err != nil {
-		logger.Log(logger.ERROR, "order-service", "db_transaction_failed", "failed to begin transaction", rid,
-			map[string]interface{}{"error": err.Error()}, err)
-		return err
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback(ctx)
-			panic(p)
-		} else if err != nil {
-			tx.Rollback(ctx)
+func (s *KitchenService) SendHeartbeat(ctx context.Context, workerID int) error {
+	return s.workerRepo.UpdateWorkerHeartbeat(ctx, workerID)
+}
+
+func (s *KitchenService) MarkWorkerOffline(ctx context.Context, workerID int) error {
+	return s.workerRepo.MarkWorkerOffline(ctx, workerID)
+}
+
+func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker, orderMsg *rmq.OrderMessage) error {
+	rid := ""
+	if v := ctx.Value("request_id"); v != nil {
+		if str, ok := v.(string); ok {
+			rid = str
 		}
-	}()
-	order, err := s.oRepo.GetByNumber(ctx, tx, orderNumber)
-	if order.Status == orderModel.StatusCooking {
-		return workerModel.ErrAlreadyCooking
 	}
-	err = s.oRepo.UpdateStatus(ctx, tx, orderNumber, orderModel.StatusCooking, workerName)
-	if err != nil {
+
+	logger.Log(logger.DEBUG, "kitchen-worker", "order_processing_started", "started processing order", rid,
+		map[string]interface{}{
+			"order_number": orderMsg.OrderNumber,
+			"worker_name":  worker.Name,
+		}, nil)
+
+	// Check if worker can handle this order type
+	if len(worker.OrderTypes) > 0 {
+		canHandle := false
+		for _, t := range worker.OrderTypes {
+			if t == orderMsg.OrderType {
+				canHandle = true
+				break
+			}
+		}
+		if !canHandle {
+			logger.Log(logger.DEBUG, "kitchen-worker", "order_rejected", "worker cannot handle this order type", rid,
+				map[string]interface{}{
+					"order_number": orderMsg.OrderNumber,
+					"order_type":   orderMsg.OrderType,
+					"worker_types": worker.OrderTypes,
+				}, nil)
+			return fmt.Errorf("worker cannot handle order type %s", orderMsg.OrderType)
+		}
+	}
+
+	// Update status to cooking
+	if err := s.orderRepo.UpdateOrderStatus(ctx, orderMsg.OrderNumber, "cooking", worker.Name); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_update_failed", "failed to update order status to cooking", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
-	log := orderModel.OrderStatusLog{
-		OrderID:   order.ID,
-		Status:    orderModel.StatusCooking,
-		ChangedBy: workerName,
-		Notes:     &notes,
-	}
-	err = s.oRepo.InsertStatusLog(ctx, tx, log)
-	if err != nil {
-		return fmt.Errorf("failed to insert log: %w", err)
+
+	if err := s.orderRepo.CreateStatusLog(ctx, orderMsg.OrderNumber, "cooking", worker.Name, nil); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_log_failed", "failed to create status log", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
+		return fmt.Errorf("failed to create status log: %w", err)
 	}
 
-	return tx.Commit(ctx)
-}
+	// Publish status update
+	update := &rmq.StatusUpdateMessage{
+		OrderNumber:         orderMsg.OrderNumber,
+		OldStatus:           "received",
+		NewStatus:           "cooking",
+		ChangedBy:           worker.Name,
+		Timestamp:           time.Now(),
+		EstimatedCompletion: time.Now().Add(10 * time.Minute),
+	}
+	if err := s.publisher.PublishStatusUpdate(ctx, update); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_publish_failed", "failed to publish status update", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
+	}
 
-func (s *KitchenService) CompleteOrder(ctx context.Context, orderNumber string, workerName string, notes string, rid string) error {
-	tx, err := s.oRepo.BeginTx(ctx)
-	if err != nil {
-		logger.Log(logger.ERROR, "order-service", "db_transaction_failed", "failed to begin transaction", rid,
-			map[string]interface{}{"error": err.Error()}, err)
-		return err
+	// Simulate cooking time
+	var cookingTime time.Duration
+	switch orderMsg.OrderType {
+	case "dine_in":
+		cookingTime = 8 * time.Second
+	case "takeout":
+		cookingTime = 10 * time.Second
+	case "delivery":
+		cookingTime = 12 * time.Second
+	default:
+		cookingTime = 10 * time.Second
 	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback(ctx)
-			panic(p)
-		} else if err != nil {
-			tx.Rollback(ctx)
-		}
-	}()
-	order, err := s.oRepo.GetByNumber(ctx, tx, orderNumber)
-	if order.Status == "cooking" {
-		return workerModel.ErrAlreadyCooking
-	}
-	err = s.oRepo.UpdateStatus(ctx, tx, orderNumber, orderModel.StatusCompleted, workerName)
-	if err != nil {
+
+	time.Sleep(cookingTime)
+
+	// Update status to ready
+	if err := s.orderRepo.UpdateOrderStatus(ctx, orderMsg.OrderNumber, "ready", worker.Name); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_update_failed", "failed to update order status to ready", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
-	log := orderModel.OrderStatusLog{
-		OrderID:   order.ID,
-		Status:    orderModel.StatusCompleted,
-		ChangedBy: workerName,
-		Notes:     &notes,
+
+	if err := s.orderRepo.CreateStatusLog(ctx, orderMsg.OrderNumber, "ready", worker.Name, nil); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_log_failed", "failed to create status log", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
+		return fmt.Errorf("failed to create status log: %w", err)
 	}
-	err = s.oRepo.InsertStatusLog(ctx, tx, log)
-	if err != nil {
-		return fmt.Errorf("failed to insert log: %w", err)
+
+	// Update worker stats
+	if err := s.workerRepo.IncrementOrdersProcessed(ctx, worker.ID); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "worker_update_failed", "failed to increment orders processed", rid,
+			map[string]interface{}{
+				"worker_id":    worker.ID,
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
 	}
-	err = s.wRepo.IncrementProcessedOrders(ctx, workerName)
-	if err != nil {
-		return fmt.Errorf("failed to increment rmq stats: %w", err)
+
+	// Publish final status update
+	update = &rmq.StatusUpdateMessage{
+		OrderNumber:         orderMsg.OrderNumber,
+		OldStatus:           "cooking",
+		NewStatus:           "ready",
+		ChangedBy:           worker.Name,
+		Timestamp:           time.Now(),
+		EstimatedCompletion: time.Now(),
 	}
-	return tx.Commit(ctx)
+	if err := s.publisher.PublishStatusUpdate(ctx, update); err != nil {
+		logger.Log(logger.ERROR, "kitchen-worker", "status_publish_failed", "failed to publish status update", rid,
+			map[string]interface{}{
+				"order_number": orderMsg.OrderNumber,
+				"error":        err.Error(),
+			}, err)
+	}
+
+	logger.Log(logger.DEBUG, "kitchen-worker", "order_completed", "order processing completed", rid,
+		map[string]interface{}{
+			"order_number": orderMsg.OrderNumber,
+			"worker_name":  worker.Name,
+			"cooking_time": cookingTime.String(),
+		}, nil)
+
+	return nil
 }

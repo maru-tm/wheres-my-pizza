@@ -4,77 +4,74 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"restaurant-system/pkg/rabbitmq"
+
 	"github.com/rabbitmq/amqp091-go"
-	"restaurant-system/internal/rabbitmq"
 )
 
 type OrderConsumer struct {
-	ch         *amqp091.Channel
-	queue      string
-	exchange   string
-	routingKey string
-	workerName string
+	channel *amqp091.Channel
+	queue   amqp091.Queue
 }
 
-func NewOrderConsumer(r *rabbitmq.RabbitMQ, workerName string) (*OrderConsumer, error) {
-	exchange := "orders_exchange"
-	routingKey := "orders.created"
+func NewOrderConsumer(rabbitmq *rabbitmq.RabbitMQ, prefetch int) (*OrderConsumer, error) {
+	ch := rabbitmq.Channel()
 
-	ch := r.Channel()
+	err := ch.Qos(
+		prefetch,
+		0,
+		false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set QoS: %w", err)
+	}
 
-	if err := ch.ExchangeDeclare(
-		exchange,
-		"direct",
+	err = ch.ExchangeDeclare(
+		"orders_topic",
+		"topic",
 		true,
 		false,
 		false,
 		false,
 		nil,
-	); err != nil {
-		return nil, err
-	}
-	args := amqp091.Table{
-		"x-dead-letter-exchange":    "dlx_exchange",
-		"x-dead-letter-routing-key": "orders.dead",
-	}
-	queueName := fmt.Sprintf("orders_queue_%s", workerName)
-	q, err := ch.QueueDeclare(
-		queueName,
-		true,  // durable
-		false, // auto-delete
-		false, // exclusive
-		false, // no-wait
-		args,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	if err := ch.QueueBind(
-		q.Name,
-		routingKey,
-		exchange,
+	queue, err := ch.QueueDeclare(
+		"kitchen_queue",
+		true,
+		false,
+		false,
 		false,
 		nil,
-	); err != nil {
-		return nil, err
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
-	if err := ch.Qos(1, 0, false); err != nil {
-		return nil, err
+
+	err = ch.QueueBind(
+		queue.Name,
+		"kitchen.*.*",
+		"orders_topic",
+		false,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind queue: %w", err)
 	}
 
 	return &OrderConsumer{
-		ch:         ch,
-		queue:      q.Name,
-		exchange:   exchange,
-		routingKey: routingKey,
-		workerName: workerName,
+		channel: ch,
+		queue:   queue,
 	}, nil
 }
 
-func (c *OrderConsumer) Consume(ctx context.Context) (*OrderMessage, uint64, error) {
-	msgs, err := c.ch.Consume(
-		c.queue,
+func (c *OrderConsumer) ConsumeOrders(ctx context.Context) (<-chan *OrderMessage, error) {
+	msgs, err := c.channel.Consume(
+		c.queue.Name,
 		"",
 		false,
 		false,
@@ -83,25 +80,41 @@ func (c *OrderConsumer) Consume(ctx context.Context) (*OrderMessage, uint64, err
 		nil,
 	)
 	if err != nil {
-		return nil, 0, err
+		return nil, fmt.Errorf("failed to consume messages: %w", err)
 	}
 
-	select {
-	case msg := <-msgs:
-		var order OrderMessage
-		if err := json.Unmarshal(msg.Body, &order); err != nil {
-			return nil, msg.DeliveryTag, err
+	orderMsgs := make(chan *OrderMessage, 100)
+
+	go func() {
+		defer close(orderMsgs)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-msgs:
+				if !ok {
+					return
+				}
+
+				var orderMsg OrderMessage
+				if err := json.Unmarshal(msg.Body, &orderMsg); err != nil {
+					msg.Nack(false, false)
+					continue
+				}
+
+				orderMsg.DeliveryTag = msg.DeliveryTag
+				orderMsgs <- &orderMsg
+			}
 		}
-		return &order, msg.DeliveryTag, nil
+	}()
 
-	case <-ctx.Done():
-		return nil, 0, ctx.Err()
-	}
+	return orderMsgs, nil
 }
 
-func (c *OrderConsumer) Ack(deliveryTag uint64) error {
-	return c.ch.Ack(deliveryTag, false)
+func (c *OrderConsumer) AckMessage(deliveryTag uint64) error {
+	return c.channel.Ack(deliveryTag, false)
 }
-func (c *OrderConsumer) Nack(deliveryTag uint64, requeue bool) error {
-	return c.ch.Nack(deliveryTag, false, requeue)
+
+func (c *OrderConsumer) NackMessage(deliveryTag uint64, requeue bool) error {
+	return c.channel.Nack(deliveryTag, false, requeue)
 }

@@ -3,34 +3,41 @@ package order
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
-	"restaurant-system/internal/logger"
+	"time"
+
 	"restaurant-system/internal/order/handler"
 	"restaurant-system/internal/order/infrastructure/pg"
 	"restaurant-system/internal/order/infrastructure/rmq"
 	"restaurant-system/internal/order/service"
-	"restaurant-system/internal/rabbitmq"
+	"restaurant-system/pkg/logger"
+	"restaurant-system/pkg/rabbitmq"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ, port int, maxConcurrent int, rid string) {
-	orderRepo := pg.NewOrderRepository(pgxPool)
-	orderPublisher, err := rmq.NewOrderPublisher(rabbitmq)
+func Run(ctx context.Context, dbPool *pgxpool.Pool, rmqClient *rabbitmq.RabbitMQ, port int, maxConcurrent int, requestID string) {
+	// Initialize repositories
+	orderRepo := pg.NewOrderRepository(dbPool)
+
+	// Initialize RabbitMQ publisher
+	orderPublisher, err := rmq.NewOrderPublisher(rmqClient)
 	if err != nil {
-		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", rid, nil, err)
+		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", requestID, nil, err)
 		return
 	}
 
+	// Initialize service
 	orderService := service.NewOrderService(orderRepo, orderPublisher)
+
+	// Initialize handler
 	orderHandler := handler.NewOrderHandler(orderService)
 
+	// Setup HTTP server
 	mux := http.NewServeMux()
-	mux.HandleFunc("/orders", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		orderHandler.CreateOrderHandler(w, r)
+	mux.HandleFunc("POST /orders", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), "request_id", fmt.Sprintf("req-%d", time.Now().UnixNano()))
+		orderHandler.CreateOrderHandler(w, r.WithContext(ctx))
 	})
 
 	server := &http.Server{
@@ -38,25 +45,27 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 		Handler: mux,
 	}
 
+	logger.Log(logger.INFO, "order-service", "service_started", "Order Service started", requestID,
+		map[string]interface{}{"port": port, "max_concurrent": maxConcurrent}, nil)
+
+	// Start server in goroutine
 	go func() {
-		<-ctx.Done()
-		logger.Log(logger.INFO, "order-service", "shutdown_initiated", "received termination signal, shutting down...", rid, nil, nil)
-		server.Shutdown(context.Background())
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Log(logger.ERROR, "order-service", "http_server_failed", "HTTP server failed", requestID,
+				map[string]interface{}{"error": err.Error()}, err)
+		}
 	}()
 
-	logger.Log(logger.INFO, "order-service", "service_started",
-		fmt.Sprintf("Order Service started on port %d", port),
-		rid,
-		map[string]interface{}{
-			"port":           port,
-			"max_concurrent": maxConcurrent,
-		},
-		nil,
-	)
+	// Wait for shutdown signal
+	<-ctx.Done()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Log(logger.ERROR, "order-service", "server_error", "server failed", rid, nil, err)
+	// Graceful shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Log(logger.ERROR, "order-service", "shutdown_failed", "failed to shutdown server", requestID,
+			map[string]interface{}{"error": err.Error()}, err)
 	}
 
-	logger.Log(logger.INFO, "order-service", "service_stopped", "Order Service stopped gracefully", rid, nil, nil)
+	logger.Log(logger.INFO, "order-service", "service_stopped", "Order Service stopped", requestID, nil, nil)
 }
