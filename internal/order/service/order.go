@@ -17,6 +17,8 @@ type OrderRepository interface {
 	CreateItem(ctx context.Context, tx pgx.Tx, item *model.OrderItem) (int, error)
 	CreateLog(ctx context.Context, tx pgx.Tx, logEntry *model.OrderStatusLog) (int, error)
 	GetNextOrderSequence(ctx context.Context, tx pgx.Tx, date string) (int, error)
+	GetOrders(ctx context.Context, page, limit int) ([]*model.Order, int, error)
+	GetOrder(ctx context.Context, orderNumber string) (*model.Order, error)
 }
 
 type OrderPublisher interface {
@@ -56,14 +58,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		return nil, fmt.Errorf("%w: delivery_address is required for delivery orders", model.ValidationError)
 	}
 
-	// Calculate total amount
 	var total float64
 	for _, item := range order.Items {
 		total += item.Price * float64(item.Quantity)
 	}
 	order.TotalAmount = total
 
-	// Set priority based on total amount
 	switch {
 	case total > 100:
 		order.Priority = 10
@@ -79,19 +79,18 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 			map[string]interface{}{"error": err.Error()}, err)
 		return nil, err
 	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback(ctx)
-			panic(p)
-		} else if err != nil {
-			tx.Rollback(ctx)
-		}
-	}()
 
-	// Generate order number
+	rollback := func() {
+		if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
+			logger.Log(logger.ERROR, "order-service", "db_rollback_failed", "failed to rollback transaction", rid,
+				map[string]interface{}{"error": err.Error()}, err)
+		}
+	}
+
 	today := time.Now().UTC().Format("20060102")
 	seq, err := s.repo.GetNextOrderSequence(ctx, tx, today)
 	if err != nil {
+		rollback()
 		logger.Log(logger.ERROR, "order-service", "sequence_fetch_failed", "failed to get next order sequence", rid,
 			map[string]interface{}{"error": err.Error()}, err)
 		return nil, fmt.Errorf("failed to get next order sequence: %w", err)
@@ -103,21 +102,21 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 	order.CreatedAt = time.Now()
 	order.UpdatedAt = time.Now()
 
-	// Create order
 	orderID, err := s.repo.CreateOrder(ctx, tx, order)
 	if err != nil {
+		rollback()
 		logger.Log(logger.ERROR, "order-service", "db_insert_failed", "failed to insert order", rid,
 			map[string]interface{}{"order_number": order.Number, "error": err.Error()}, err)
 		return nil, err
 	}
 	order.ID = orderID
 
-	// Create order items
 	for i := range order.Items {
 		order.Items[i].OrderID = orderID
 		order.Items[i].CreatedAt = time.Now()
 		itemID, err := s.repo.CreateItem(ctx, tx, &order.Items[i])
 		if err != nil {
+			rollback()
 			logger.Log(logger.ERROR, "order-service", "db_insert_failed", "failed to insert order item", rid,
 				map[string]interface{}{"order_number": order.Number, "item_name": order.Items[i].Name, "error": err.Error()}, err)
 			return nil, err
@@ -125,7 +124,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		order.Items[i].ID = itemID
 	}
 
-	// Create status log
 	logEntry := &model.OrderStatusLog{
 		OrderID:   orderID,
 		Status:    model.StatusReceived,
@@ -135,6 +133,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 	}
 	logID, err := s.repo.CreateLog(ctx, tx, logEntry)
 	if err != nil {
+		rollback()
 		logger.Log(logger.ERROR, "order-service", "db_insert_failed", "failed to insert order status log", rid,
 			map[string]interface{}{"order_number": order.Number, "error": err.Error()}, err)
 		return nil, err
@@ -142,12 +141,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 	logEntry.ID = logID
 
 	if err := tx.Commit(ctx); err != nil {
+		rollback()
 		logger.Log(logger.ERROR, "order-service", "db_transaction_failed", "failed to commit transaction", rid,
 			map[string]interface{}{"order_number": order.Number, "error": err.Error()}, err)
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Publish to RabbitMQ
 	if err := s.rmq.PublishCreatedOrder(ctx, order); err != nil {
 		logger.Log(logger.ERROR, "order-service", "rabbitmq_publish_failed", "failed to publish order", rid,
 			map[string]interface{}{"order_number": order.Number, "priority": order.Priority}, err)
@@ -158,4 +157,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		map[string]interface{}{"order_number": order.Number, "priority": order.Priority}, nil)
 
 	return order, nil
+}
+
+func (s *OrderService) GetOrders(ctx context.Context, page, limit int) ([]*model.Order, int, error) {
+	return s.repo.GetOrders(ctx, page, limit)
+}
+
+func (s *OrderService) GetOrder(ctx context.Context, orderNumber string) (*model.Order, error) {
+	return s.repo.GetOrder(ctx, orderNumber)
 }

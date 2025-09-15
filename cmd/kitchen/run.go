@@ -55,9 +55,6 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 				if err := kitchenService.SendHeartbeat(ctx, worker.ID); err != nil {
 					logger.Log(logger.ERROR, "kitchen-worker", "heartbeat_failed", "failed to send heartbeat", rid,
 						map[string]interface{}{"worker_id": worker.ID}, err)
-				} else {
-					logger.Log(logger.DEBUG, "kitchen-worker", "heartbeat_sent", "heartbeat sent successfully", rid,
-						map[string]interface{}{"worker_id": worker.ID}, nil)
 				}
 			case <-heartbeatCtx.Done():
 				return
@@ -65,15 +62,13 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 		}
 	}()
 
-	// Create message consumer
-	consumer, err := rmq.NewOrderConsumer(rabbitmq, prefetch)
+	consumer, err := rmq.NewOrderConsumer(rabbitmq, prefetch, orderTypes)
 	if err != nil {
 		logger.Log(logger.ERROR, "kitchen-worker", "consumer_init_failed", "failed to initialize consumer", rid, nil, err)
 		stopHeartbeat()
 		return
 	}
 
-	// Start consuming messages
 	msgs, err := consumer.ConsumeOrders(ctx)
 	if err != nil {
 		logger.Log(logger.ERROR, "kitchen-worker", "consume_failed", "failed to start consuming messages", rid, nil, err)
@@ -81,7 +76,6 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 		return
 	}
 
-	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -90,7 +84,6 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 		logger.Log(logger.INFO, "kitchen-worker", "shutdown_initiated", "received termination signal", rid, nil, nil)
 		stopHeartbeat()
 
-		// Mark worker as offline
 		if err := kitchenService.MarkWorkerOffline(ctx, worker.ID); err != nil {
 			logger.Log(logger.ERROR, "kitchen-worker", "shutdown_failed", "failed to mark worker offline", rid,
 				map[string]interface{}{"worker_id": worker.ID}, err)
@@ -99,7 +92,6 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 		os.Exit(0)
 	}()
 
-	// Process messages
 	for msg := range msgs {
 		processCtx := context.WithValue(ctx, "request_id", fmt.Sprintf("msg-%d", time.Now().UnixNano()))
 
@@ -107,12 +99,10 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq *rabbitmq.RabbitMQ
 			logger.Log(logger.ERROR, "kitchen-worker", "order_processing_failed", "failed to process order", rid,
 				map[string]interface{}{"order_number": msg.OrderNumber}, err)
 
-			// Nack the message to requeue it
 			if err := consumer.NackMessage(msg.DeliveryTag, true); err != nil {
 				logger.Log(logger.ERROR, "kitchen-worker", "nack_failed", "failed to nack message", rid, nil, err)
 			}
 		} else {
-			// Ack the message
 			if err := consumer.AckMessage(msg.DeliveryTag); err != nil {
 				logger.Log(logger.ERROR, "kitchen-worker", "ack_failed", "failed to ack message", rid, nil, err)
 			}
