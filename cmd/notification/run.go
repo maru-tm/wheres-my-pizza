@@ -11,7 +11,6 @@ import (
 )
 
 func Run(ctx context.Context, rabbitmqClient *rabbitmq.RabbitMQ, rid string) {
-	// Create notification consumer
 	consumer, err := rmq.NewNotificationConsumer(rabbitmqClient)
 	if err != nil {
 		logger.Log(logger.ERROR, "notification-subscriber", "consumer_init_failed", "failed to initialize consumer", rid, nil, err)
@@ -20,7 +19,6 @@ func Run(ctx context.Context, rabbitmqClient *rabbitmq.RabbitMQ, rid string) {
 
 	logger.Log(logger.INFO, "notification-subscriber", "service_started", "Notification subscriber started", rid, nil, nil)
 
-	// Consume messages
 	messages, err := consumer.Consume(ctx)
 	if err != nil {
 		logger.Log(logger.ERROR, "notification-subscriber", "consume_failed", "failed to start consuming messages", rid, nil, err)
@@ -44,11 +42,9 @@ func Run(ctx context.Context, rabbitmqClient *rabbitmq.RabbitMQ, rid string) {
 					"new_status":   msg.NewStatus,
 				}, nil)
 
-			// Print human-readable notification
 			fmt.Printf("Notification for order %s: Status changed from '%s' to '%s' by %s. Estimated completion: %s\n",
 				msg.OrderNumber, msg.OldStatus, msg.NewStatus, msg.ChangedBy, msg.EstimatedCompletion.Format(time.RFC3339))
 
-			// Ack the message
 			if err := consumer.Ack(msg.DeliveryTag); err != nil {
 				logger.Log(logger.ERROR, "notification-subscriber", "ack_failed", "failed to ack message", requestID, nil, err)
 			}

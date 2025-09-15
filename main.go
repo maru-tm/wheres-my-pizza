@@ -14,12 +14,10 @@ import (
 	"restaurant-system/cmd/notification"
 	"restaurant-system/cmd/order"
 	"restaurant-system/cmd/tracking"
-	"restaurant-system/config"
 	"restaurant-system/pkg/logger"
 	"restaurant-system/pkg/postgres"
 	"restaurant-system/pkg/rabbitmq"
-
-	"gopkg.in/yaml.v3"
+	"restaurant-system/pkg/yaml"
 )
 
 func main() {
@@ -49,7 +47,7 @@ func main() {
 		*configPath = envConfigPath
 	}
 
-	cfg, err := loadConfig(*configPath)
+	cfg, err := yaml.LoadConfig(*configPath)
 	if err != nil {
 		logger.Log(logger.ERROR, *mode, "config_load_failed", "failed to load config", requestID, nil, err)
 		os.Exit(1)
@@ -108,18 +106,4 @@ func main() {
 	logger.Log(logger.INFO, *mode, "shutdown_initiated", "received termination signal, shutting down...", requestID, nil, nil)
 	cancel()
 	time.Sleep(1 * time.Second)
-}
-
-func loadConfig(path string) (*config.Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	return &cfg, nil
 }

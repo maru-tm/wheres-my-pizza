@@ -6,6 +6,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"restaurant-system/config"
+
+	"gopkg.in/yaml.v3"
 )
 
 func ParseFile(path string) (map[string]map[string]string, error) {
@@ -56,4 +60,18 @@ func ParseFile(path string) (map[string]map[string]string, error) {
 func Atoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+func LoadConfig(path string) (*config.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return &cfg, nil
 }

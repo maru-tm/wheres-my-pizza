@@ -31,19 +31,27 @@ func New(cfg config.RabbitMQConfig) (*RabbitMQ, error) {
 
 	ch, err := conn.Channel()
 	if err != nil {
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
 
-	// Configure channel
 	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
+		1,
+		0,
+		false,
 	)
 	if err != nil {
-		ch.Close()
-		conn.Close()
+		err := ch.Close()
+		if err != nil {
+			return nil, err
+		}
+		err = conn.Close()
+		if err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to set QoS: %w", err)
 	}
 
@@ -77,20 +85,31 @@ func (r *RabbitMQ) Reconnect() error {
 
 	ch, err := conn.Channel()
 	if err != nil {
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			return err
+		}
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
 
 	err = ch.Qos(1, 0, false)
 	if err != nil {
-		ch.Close()
-		conn.Close()
+		err := ch.Close()
+		if err != nil {
+			return err
+		}
+		err = conn.Close()
+		if err != nil {
+			return err
+		}
 		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
-	// Close old connection
 	if r.conn != nil {
-		r.conn.Close()
+		err := r.conn.Close()
+		if err != nil {
+			return err
+		}
 	}
 
 	r.conn = conn
@@ -101,10 +120,16 @@ func (r *RabbitMQ) Reconnect() error {
 
 func (r *RabbitMQ) Close() {
 	if r.channel != nil {
-		r.channel.Close()
+		err := r.channel.Close()
+		if err != nil {
+			return
+		}
 	}
 	if r.conn != nil {
-		r.conn.Close()
+		err := r.conn.Close()
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -118,8 +143,8 @@ func (r *RabbitMQ) Publish(ctx context.Context, exchange, routingKey string, bod
 	return r.channel.PublishWithContext(ctx,
 		exchange,
 		routingKey,
-		false, // mandatory
-		false, // immediate
+		false,
+		false,
 		amqp091.Publishing{
 			ContentType:  "application/json",
 			Body:         body,
@@ -139,9 +164,9 @@ func (r *RabbitMQ) Consume(ctx context.Context, queue, consumer string, autoAck 
 		queue,
 		consumer,
 		autoAck,
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,   // args
+		false,
+		false,
+		false,
+		nil,
 	)
 }

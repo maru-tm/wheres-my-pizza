@@ -120,7 +120,10 @@ func (c *OrderConsumer) ConsumeOrders(ctx context.Context) (<-chan *OrderMessage
 
 				var orderMsg OrderMessage
 				if err := json.Unmarshal(msg.Body, &orderMsg); err != nil {
-					msg.Nack(false, false)
+					err := msg.Nack(false, false)
+					if err != nil {
+						return
+					}
 					continue
 				}
 

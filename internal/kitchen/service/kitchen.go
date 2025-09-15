@@ -77,7 +77,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 			"worker_name":  worker.Name,
 		}, nil)
 
-	// Check if worker can handle this order type
 	if len(worker.OrderTypes) > 0 {
 		canHandle := false
 		for _, t := range worker.OrderTypes {
@@ -97,7 +96,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 		}
 	}
 
-	// Update status to cooking
 	if err := s.orderRepo.UpdateOrderStatus(ctx, orderMsg.OrderNumber, "cooking", worker.Name); err != nil {
 		logger.Log(logger.ERROR, "kitchen-worker", "status_update_failed", "failed to update order status to cooking", rid,
 			map[string]interface{}{
@@ -116,7 +114,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 		return fmt.Errorf("failed to create status log: %w", err)
 	}
 
-	// Publish status update
 	update := &rmq.StatusUpdateMessage{
 		OrderNumber:         orderMsg.OrderNumber,
 		OldStatus:           "received",
@@ -133,7 +130,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 			}, err)
 	}
 
-	// Simulate cooking time
 	var cookingTime time.Duration
 	switch orderMsg.OrderType {
 	case "dine_in":
@@ -148,7 +144,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 
 	time.Sleep(cookingTime)
 
-	// Update status to ready
 	if err := s.orderRepo.UpdateOrderStatus(ctx, orderMsg.OrderNumber, "ready", worker.Name); err != nil {
 		logger.Log(logger.ERROR, "kitchen-worker", "status_update_failed", "failed to update order status to ready", rid,
 			map[string]interface{}{
@@ -167,7 +162,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 		return fmt.Errorf("failed to create status log: %w", err)
 	}
 
-	// Update worker stats
 	if err := s.workerRepo.IncrementOrdersProcessed(ctx, worker.ID); err != nil {
 		logger.Log(logger.ERROR, "kitchen-worker", "worker_update_failed", "failed to increment orders processed", rid,
 			map[string]interface{}{
@@ -177,7 +171,6 @@ func (s *KitchenService) ProcessOrder(ctx context.Context, worker *model.Worker,
 			}, err)
 	}
 
-	// Publish final status update
 	update = &rmq.StatusUpdateMessage{
 		OrderNumber:         orderMsg.OrderNumber,
 		OldStatus:           "cooking",
