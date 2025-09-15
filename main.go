@@ -45,6 +45,10 @@ func main() {
 
 	requestID := fmt.Sprintf("startup-%d-%d", os.Getpid(), time.Now().UnixNano())
 
+	if envConfigPath := os.Getenv("CONFIG_PATH"); envConfigPath != "" {
+		*configPath = envConfigPath
+	}
+
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		logger.Log(logger.ERROR, *mode, "config_load_failed", "failed to load config", requestID, nil, err)

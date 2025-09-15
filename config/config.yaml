@@ -1,6 +1,6 @@
 # Database Configuration
 database:
-  host: localhost
+  host: postgres
   port: 5432
   user: restaurant_user
   password: restaurant_pass
@@ -8,7 +8,7 @@ database:
 
 # RabbitMQ Configuration
 rabbitmq:
-  host: localhost
+  host: rabbitmq
   port: 5672
   user: guest
   password: guest

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"restaurant-system/pkg/rabbitmq"
 
@@ -15,7 +16,7 @@ type OrderConsumer struct {
 	queue   amqp091.Queue
 }
 
-func NewOrderConsumer(rabbitmq *rabbitmq.RabbitMQ, prefetch int) (*OrderConsumer, error) {
+func NewOrderConsumer(rabbitmq *rabbitmq.RabbitMQ, prefetch int, orderTypes []string) (*OrderConsumer, error) {
 	ch := rabbitmq.Channel()
 
 	err := ch.Qos(
@@ -40,8 +41,13 @@ func NewOrderConsumer(rabbitmq *rabbitmq.RabbitMQ, prefetch int) (*OrderConsumer
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
+	queueName := "kitchen_queue"
+	if len(orderTypes) > 0 {
+		queueName = "kitchen_queue_" + strings.Join(orderTypes, "_")
+	}
+
 	queue, err := ch.QueueDeclare(
-		"kitchen_queue",
+		queueName,
 		true,
 		false,
 		false,
@@ -52,15 +58,31 @@ func NewOrderConsumer(rabbitmq *rabbitmq.RabbitMQ, prefetch int) (*OrderConsumer
 		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
-	err = ch.QueueBind(
-		queue.Name,
-		"kitchen.*.*",
-		"orders_topic",
-		false,
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to bind queue: %w", err)
+	if len(orderTypes) > 0 {
+		for _, orderType := range orderTypes {
+			routingKey := "kitchen." + orderType + ".*"
+			err = ch.QueueBind(
+				queue.Name,
+				routingKey,
+				"orders_topic",
+				false,
+				nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to bind queue: %w", err)
+			}
+		}
+	} else {
+		err = ch.QueueBind(
+			queue.Name,
+			"kitchen.*.*",
+			"orders_topic",
+			false,
+			nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to bind queue: %w", err)
+		}
 	}
 
 	return &OrderConsumer{

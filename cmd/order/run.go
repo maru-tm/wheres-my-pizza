@@ -17,27 +17,28 @@ import (
 )
 
 func Run(ctx context.Context, dbPool *pgxpool.Pool, rmqClient *rabbitmq.RabbitMQ, port int, maxConcurrent int, requestID string) {
-	// Initialize repositories
 	orderRepo := pg.NewOrderRepository(dbPool)
-
-	// Initialize RabbitMQ publisher
 	orderPublisher, err := rmq.NewOrderPublisher(rmqClient)
 	if err != nil {
 		logger.Log(logger.ERROR, "order-service", "order_publisher_init_failed", "failed to initialize order publisher", requestID, nil, err)
 		return
 	}
 
-	// Initialize service
 	orderService := service.NewOrderService(orderRepo, orderPublisher)
-
-	// Initialize handler
 	orderHandler := handler.NewOrderHandler(orderService)
 
-	// Setup HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /orders", func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), "request_id", fmt.Sprintf("req-%d", time.Now().UnixNano()))
 		orderHandler.CreateOrderHandler(w, r.WithContext(ctx))
+	})
+	mux.HandleFunc("GET /orders", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), "request_id", fmt.Sprintf("req-%d", time.Now().UnixNano()))
+		orderHandler.GetOrdersHandler(w, r.WithContext(ctx))
+	})
+	mux.HandleFunc("GET /orders/{orderNumber}", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), "request_id", fmt.Sprintf("req-%d", time.Now().UnixNano()))
+		orderHandler.GetOrderHandler(w, r.WithContext(ctx))
 	})
 
 	server := &http.Server{
@@ -48,7 +49,6 @@ func Run(ctx context.Context, dbPool *pgxpool.Pool, rmqClient *rabbitmq.RabbitMQ
 	logger.Log(logger.INFO, "order-service", "service_started", "Order Service started", requestID,
 		map[string]interface{}{"port": port, "max_concurrent": maxConcurrent}, nil)
 
-	// Start server in goroutine
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Log(logger.ERROR, "order-service", "http_server_failed", "HTTP server failed", requestID,
@@ -56,10 +56,8 @@ func Run(ctx context.Context, dbPool *pgxpool.Pool, rmqClient *rabbitmq.RabbitMQ
 		}
 	}()
 
-	// Wait for shutdown signal
 	<-ctx.Done()
 
-	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

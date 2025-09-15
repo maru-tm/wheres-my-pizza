@@ -1,8 +1,8 @@
+version: '3.8'
 services:
   postgres:
     image: postgres:15
     container_name: restaurant-postgres
-    restart: always
     environment:
       POSTGRES_USER: restaurant_user
       POSTGRES_PASSWORD: restaurant_pass
@@ -11,17 +11,87 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restaurant_user -d restaurant_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:3-management
     container_name: restaurant-rmq
-    restart: always
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  order-service:
+    build: .
+    container_name: order-service
+    command: ["./restaurant-system", "--mode=order-service", "--port=3000"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - CONFIG_PATH=/root/config.yaml
+
+  tracking-service:
+    build: .
+    container_name: tracking-service
+    command: ["./restaurant-system", "--mode=tracking-service", "--port=3002"]
+    ports:
+      - "3002:3002"
+    depends_on:
+      - order-service
+    environment:
+      - CONFIG_PATH=/root/config.yaml
+
+  notification-service:
+    build: .
+    container_name: notification-service
+    command: ["./restaurant-system", "--mode=notification-subscriber"]
+    depends_on:
+      - order-service
+    environment:
+      - CONFIG_PATH=/root/config.yaml
+
+  kitchen-worker-dinein:
+    build: .
+    container_name: kitchen-worker-dinein
+    command: ["./restaurant-system", "--mode=kitchen-worker", "--worker-name=chef_dinein", "--order-types=dine_in"]
+    depends_on:
+      - order-service
+    environment:
+      - CONFIG_PATH=/root/config.yaml
+
+  kitchen-worker-takeout:
+    build: .
+    container_name: kitchen-worker-takeout
+    command: ["./restaurant-system", "--mode=kitchen-worker", "--worker-name=chef_takeout", "--order-types=takeout"]
+    depends_on:
+      - order-service
+    environment:
+      - CONFIG_PATH=/root/config.yaml
+
+  kitchen-worker-delivery:
+    build: .
+    container_name: kitchen-worker-delivery
+    command: ["./restaurant-system", "--mode=kitchen-worker", "--worker-name=chef_delivery", "--order-types=delivery"]
+    depends_on:
+      - order-service
+    environment:
+      - CONFIG_PATH=/root/config.yaml
 
 volumes:
   postgres_data:
