@@ -10,18 +10,55 @@
 			"name": "tracking-service",
 			"item": [
 				{
-					"name": "order history",
+					"name": "worker status",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{tracking-service}}/orders/{{ORDER_ID}}/history",
+							"raw": "{{tracking-service}}/workers/status",
+							"host": [
+								"{{tracking-service}}"
+							],
+							"path": [
+								"workers",
+								"status"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "order status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{tracking-service}}/orders/ORD_20250916_001/status",
 							"host": [
 								"{{tracking-service}}"
 							],
 							"path": [
 								"orders",
-								"{{ORDER_ID}}",
+								"ORD_20250916_001",
+								"status"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "order history",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{tracking-service}}/orders/ORD_20250916_001/history",
+							"host": [
+								"{{tracking-service}}"
+							],
+							"path": [
+								"orders",
+								"ORD_20250916_001",
 								"history"
 							]
 						}
@@ -66,33 +103,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\r\n    \"customer_name\": \"John Doe\",\r\n    \"order_type\": \"dine_in\",\r\n    \"table_number\": 5,\r\n    \"items\": [\r\n        {\r\n            \"name\": \"Margherita Pizza\",\r\n            \"quantity\": 1,\r\n            \"price\": 15.99\r\n        },\r\n        {\r\n            \"name\": \"Caesar Salad\",\r\n            \"quantity\": 1,\r\n            \"price\": 8.99\r\n        }\r\n    ]\r\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{order-service}}/orders",
-							"host": [
-								"{{order-service}}"
-							],
-							"path": [
-								"orders"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "takeout2",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\r\n    \"customer_name\": \"Jane Smith\",\r\n    \"order_type\": \"takeout\",\r\n    \"items\": [\r\n        {\r\n            \"name\": \"Pepperoni Pizza\",\r\n            \"quantity\": 2,\r\n            \"price\": 18.99\r\n        }\r\n    ]\r\n}"
+							"raw": "{\r\n    \"customer_name\": \"Big Spender\",\r\n    \"order_type\": \"dine_in\",\r\n    \"table_number\": 10,\r\n    \"items\": [\r\n        {\r\n            \"name\": \"Truffle Pizza\",\r\n            \"quantity\": 3,\r\n            \"price\": 45.99\r\n        },\r\n        {\r\n            \"name\": \"Lobster Pasta\",\r\n            \"quantity\": 2,\r\n            \"price\": 32.50\r\n        },\r\n        {\r\n            \"name\": \"Champagne\",\r\n            \"quantity\": 1,\r\n            \"price\": 89.99\r\n        }\r\n    ]\r\n}"
 						},
 						"url": {
 							"raw": "{{order-service}}/orders",
@@ -128,14 +139,10 @@
 					"response": []
 				},
 				{
-					"name": "dine_in2",
+					"name": "orders",
 					"request": {
-						"method": "POST",
+						"method": "GET",
 						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\r\n    \"customer_name\": \"Big Spender\",\r\n    \"order_type\": \"dine_in\",\r\n    \"table_number\": 10,\r\n    \"items\": [\r\n        {\r\n            \"name\": \"Truffle Pizza\",\r\n            \"quantity\": 3,\r\n            \"price\": 45.99\r\n        },\r\n        {\r\n            \"name\": \"Lobster Pasta\",\r\n            \"quantity\": 2,\r\n            \"price\": 32.50\r\n        },\r\n        {\r\n            \"name\": \"Champagne\",\r\n            \"quantity\": 1,\r\n            \"price\": 89.99\r\n        }\r\n    ]\r\n}"
-						},
 						"url": {
 							"raw": "{{order-service}}/orders",
 							"host": [
@@ -143,6 +150,51 @@
 							],
 							"path": [
 								"orders"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "order",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{order-service}}/orders/ORD_20250916_001",
+							"host": [
+								"{{order-service}}"
+							],
+							"path": [
+								"orders",
+								"ORD_20250916_001"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "orders param",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{order-service}}/orders?page=1&limit=5",
+							"host": [
+								"{{order-service}}"
+							],
+							"path": [
+								"orders"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "5"
+								}
 							]
 						}
 					},
@@ -158,22 +210,18 @@
 				"type": "text/javascript",
 				"packages": {},
 				"exec": [
-					"// Получаем текущую дату в формате YYYYMMDD\r",
 					"const now = new Date();\r",
 					"const yyyy = now.getFullYear();\r",
 					"const mm = String(now.getMonth() + 1).padStart(2, '0');\r",
 					"const dd = String(now.getDate()).padStart(2, '0');\r",
 					"const today = `${yyyy}${mm}${dd}`;\r",
 					"\r",
-					"// Устанавливаем дату в переменную окружения\r",
 					"pm.environment.set(\"ORDER_DATE\", today);\r",
 					"\r",
-					"// Увеличиваем счётчик (опционально)\r",
 					"let counter = parseInt(pm.environment.get(\"ORDER_COUNTER\") || \"0\", 10) + 1;\r",
 					"const paddedCounter = String(counter).padStart(3, '0');\r",
 					"pm.environment.set(\"ORDER_COUNTER\", paddedCounter);\r",
 					"\r",
-					"// Собираем итоговый ID\r",
 					"const orderId = `ORD_${today}_${paddedCounter}`;\r",
 					"pm.environment.set(\"ORDER_ID\", orderId);"
 				]
@@ -200,16 +248,16 @@
 			"value": ""
 		},
 		{
-			"key": "ORDER_ID",
-			"value": ""
-		},
-		{
 			"key": "ORDER_PREFIX",
 			"value": ""
 		},
 		{
 			"key": "ORDER_COUNTER",
 			"value": "001"
+		},
+		{
+			"key": "ORDER_ID",
+			"value": ""
 		}
 	]
 }
