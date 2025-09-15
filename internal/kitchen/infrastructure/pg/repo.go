@@ -3,8 +3,6 @@ package pg
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"restaurant-system/internal/kitchen/model"
 
 	"github.com/jackc/pgx/v5"
@@ -26,12 +24,7 @@ func (r *WorkerRepository) CreateOrUpdateWorker(ctx context.Context, name string
 		ON CONFLICT (name) 
 		DO UPDATE SET 
 			type = EXCLUDED.type,
-			status = CASE 
-				WHEN workers.status = 'online' THEN 
-					RAISE EXCEPTION 'worker_already_online'
-				ELSE 
-					'online' 
-			END,
+			status = 'online',
 			last_seen = NOW(),
 			orders_processed = workers.orders_processed
 		RETURNING id, name, type, status, last_seen, orders_processed
@@ -47,14 +40,10 @@ func (r *WorkerRepository) CreateOrUpdateWorker(ctx context.Context, name string
 		&worker.OrdersProcessed,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "worker_already_online") {
-			return nil, fmt.Errorf("worker with name '%s' is already online", name)
-		}
 		return nil, fmt.Errorf("failed to create/update worker: %w", err)
 	}
 
 	worker.OrderTypes = orderTypes
-
 	return &worker, nil
 }
 
