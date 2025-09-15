@@ -1,3 +1,4 @@
+Order-service:
 curl -X POST http://localhost:3000/orders \
   -H "Content-Type: application/json" \
   -d '{
@@ -8,3 +9,11 @@ curl -X POST http://localhost:3000/orders \
           {"name": "Caesar Salad", "quantity": 1, "price": 8.99}
         ]
       }'
+
+
+Tracking-service:
+curl http://localhost:3002/orders/____/status
+curl http://localhost:3002/orders/____/history
+curl http://localhost:3002/workers/status
+
+

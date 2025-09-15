@@ -49,6 +49,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) (*mo
 		return nil, model.ValidationError
 	}
 
+	if order.Type == model.OrderTypeDineIn && order.TableNumber == nil {
+		return nil, fmt.Errorf("%w: table_number is required for dine_in orders", model.ValidationError)
+	}
+	if order.Type == model.OrderTypeDelivery && order.DeliveryAddress == nil {
+		return nil, fmt.Errorf("%w: delivery_address is required for delivery orders", model.ValidationError)
+	}
+
 	// Calculate total amount
 	var total float64
 	for _, item := range order.Items {

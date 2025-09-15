@@ -1,40 +1,5 @@
 # wheres-my-pizza
 
-## Context
-
-> Good architecture makes the system easy to understand, easy to develop, easy to maintain, and easy to deploy. The ultimate goal is to minimize the lifetime cost of the system and to maximize programmer productivity.
->
-> — Robert C. Martin (Uncle Bob)
-
-Have you ever ordered a pizza through a delivery app and watched its status change from "Order Placed" to "In the Kitchen" and finally "Out for Delivery"? What seems like a simple status tracker is actually a complex dance between multiple independent systems. The web app where you place your order isn't directly connected to the tablet in the kitchen.
-
-This is the power of microservices and message queues. The challenge is to create a reliable order processing system that can handle a high volume of orders without slowing down. A single, monolithic application would quickly become a bottleneck. Instead, we distribute the work. The `Order Service` takes your order, the `Kitchen Service` cooks it, and a `Notification Subscriber` keeps you updated. They don't talk to each other directly; they pass messages through a central mailroom, RabbitMQ. This ensures that even if the kitchen is busy, the order service can still take new orders.
-
-In this project, you will build the core of such a system. You will learn how to design services that have a single responsibility and how to orchestrate their collaboration to create a robust and scalable application.
-
-**Message Queue Patterns**
-
-A smart way to solve this type of problem is using message queue patterns. This approach views the system as a set of interacting services, where each service processes a specific type of message and passes the result further down the chain.
-
-**Work Queue Pattern**
-
-- One producer sends tasks to a queue
-- Multiple consumers wait for the task to arrive, but only one receives it
-- Each task is processed by exactly one consumer
-- Provides load distribution among workers
-
-**Publish/Subscribe Pattern**
-
-- One publisher sends messages to all subscribers
-- Multiple consumers receive copies of messages
-- Used for notifications and state synchronization
-
-**Routing Pattern**
-
-- Messages are routed based on routing key
-- Allows creating complex processing schemes
-- Provides flexibility in defining recipients
-
 ## General Criteria
 
 - Your code MUST be written in accordance with [gofumpt](https://github.com/mvdan/gofumpt). If not, you will automatically receive a score of `0`.
@@ -94,13 +59,6 @@ rabbitmq:
   user: guest
   password: guest
 ```
-
-## Resources
-
-- [RabbitMQ Documentation](https://www.rabbitmq.com/documentation.html)
-- [RabbitMQ Docker Image](https://hub.docker.com/_/rabbitmq)
-- [Go AMQP Client](https://github.com/rabbitmq/amqp091-go)
-- [PostgreSQL Go Driver (pgx)](https://github.com/jackc/pgx/v5)
 
 ## System Architecture Overview
 

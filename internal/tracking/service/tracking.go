@@ -104,23 +104,23 @@ func (s *TrackingService) GetOrderHistory(ctx context.Context, orderNumber strin
 
 func (s *TrackingService) GetWorkersStatus(ctx context.Context) ([]map[string]interface{}, error) {
 	query := `
-		SELECT name, status, orders_processed, last_seen,
-			   CASE 
-				   WHEN NOW() - last_seen > INTERVAL '60 seconds' THEN 'offline'
-				   ELSE status
-			   END as current_status
-		FROM workers
-		ORDER BY name
-	`
+        SELECT name, status, orders_processed, last_seen,
+               CASE 
+                   WHEN NOW() - last_seen > INTERVAL '60 seconds' THEN 'offline'
+                   ELSE status
+               END as current_status
+        FROM workers
+        ORDER BY name
+    `
 
 	rows, err := s.db.Query(ctx, query)
 	if err != nil {
 		logger.Log(logger.ERROR, "tracking-service", "db_query_failed", "failed to query workers status", "", nil, err)
-		return nil, fmt.Errorf("failed to get workers status")
+		return []map[string]interface{}{}, fmt.Errorf("failed to get workers status")
 	}
 	defer rows.Close()
 
-	var workers []map[string]interface{}
+	workers := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var name, status string
 		var ordersProcessed int
@@ -128,7 +128,7 @@ func (s *TrackingService) GetWorkersStatus(ctx context.Context) ([]map[string]in
 		var currentStatus string
 
 		if err := rows.Scan(&name, &status, &ordersProcessed, &lastSeen, &currentStatus); err != nil {
-			return nil, err
+			return []map[string]interface{}{}, err
 		}
 
 		workers = append(workers, map[string]interface{}{
@@ -137,6 +137,10 @@ func (s *TrackingService) GetWorkersStatus(ctx context.Context) ([]map[string]in
 			"orders_processed": ordersProcessed,
 			"last_seen":        lastSeen.Format(time.RFC3339),
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return []map[string]interface{}{}, err
 	}
 
 	return workers, nil
