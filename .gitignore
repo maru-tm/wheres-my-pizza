@@ -1,1 +1,48 @@
-.idea
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Go build
+/bin/
+/obj/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go modules
+/go.sum
+/go.mod
+
+# Vendor
+/vendor/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Test output
+/test_output/
+*.out
+coverage.out
+
+# Docker
+docker-compose.override.yml
+*.env
+
+# Generated files
+*.pb.go
+*.pb.gw.go
+
+# Misc
+*.cache

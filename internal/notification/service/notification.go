@@ -17,10 +17,6 @@ type NotificationService struct {
 	consumer NotificationConsumer
 }
 
-func NewNotificationService(consumer NotificationConsumer) *NotificationService {
-	return &NotificationService{consumer: consumer}
-}
-
 func (s *NotificationService) Start(ctx context.Context) error {
 	rid := ""
 	if v := ctx.Value("request_id"); v != nil {
@@ -35,7 +31,6 @@ func (s *NotificationService) Start(ctx context.Context) error {
 	logger.Log(logger.INFO, "notification-subscriber", "service_started", "notification service started", rid, nil, nil)
 
 	return s.consumer.ConsumeStatusUpdates(ctx, func(update *rmq.StatusUpdateMessage) error {
-		// Log the notification
 		logger.Log(logger.DEBUG, "notification-subscriber", "notification_received", "received status update", rid,
 			map[string]interface{}{
 				"order_number": update.OrderNumber,
@@ -44,7 +39,6 @@ func (s *NotificationService) Start(ctx context.Context) error {
 				"changed_by":   update.ChangedBy,
 			}, nil)
 
-		// Print human-readable notification
 		estimated := ""
 		if !update.EstimatedCompletion.IsZero() {
 			estimated = fmt.Sprintf(", estimated completion: %s", update.EstimatedCompletion.Format("15:04:05"))
@@ -53,7 +47,6 @@ func (s *NotificationService) Start(ctx context.Context) error {
 		fmt.Printf("Notification for order %s: Status changed from '%s' to '%s' by %s%s\n",
 			update.OrderNumber, update.OldStatus, update.NewStatus, update.ChangedBy, estimated)
 
-		// For debugging, also log the full message as JSON
 		if jsonData, err := json.MarshalIndent(update, "", "  "); err == nil {
 			fmt.Printf("Full message: %s\n", string(jsonData))
 		}

@@ -18,15 +18,14 @@ type OrderPublisher struct {
 func NewOrderPublisher(rabbitmq *rabbitmq.RabbitMQ) (*OrderPublisher, error) {
 	ch := rabbitmq.Channel()
 
-	// Declare exchange
 	err := ch.ExchangeDeclare(
-		"orders_topic", // name
-		"topic",        // type
-		true,           // durable
-		false,          // auto-deleted
-		false,          // internal
-		false,          // no-wait
-		nil,            // arguments
+		"orders_topic",
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
@@ -55,14 +54,14 @@ func (p *OrderPublisher) PublishCreatedOrder(ctx context.Context, order *model.O
 	routingKey := fmt.Sprintf("kitchen.%s.%d", order.Type, order.Priority)
 
 	err = p.rabbitmq.Channel().PublishWithContext(ctx,
-		"orders_topic", // exchange
-		routingKey,     // routing key
-		false,          // mandatory
-		false,          // immediate
+		"orders_topic",
+		routingKey,
+		false,
+		false,
 		amqp091.Publishing{
 			ContentType:  "application/json",
 			Body:         body,
-			DeliveryMode: amqp091.Persistent, // Make message persistent
+			DeliveryMode: amqp091.Persistent,
 			Priority:     uint8(order.Priority),
 		})
 	if err != nil {

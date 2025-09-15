@@ -27,5 +27,5 @@ type StatusUpdateMessage struct {
 	ChangedBy           string    `json:"changed_by"`
 	Timestamp           time.Time `json:"timestamp"`
 	EstimatedCompletion time.Time `json:"estimated_completion"`
-	DeliveryTag         uint64    `json:"-"` // Internal field for RabbitMQ acknowledgement
+	DeliveryTag         uint64    `json:"-"`
 }

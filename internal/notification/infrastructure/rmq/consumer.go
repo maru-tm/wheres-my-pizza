@@ -18,40 +18,37 @@ type NotificationConsumer struct {
 func NewNotificationConsumer(rabbitmq *rabbitmq.RabbitMQ) (*NotificationConsumer, error) {
 	ch := rabbitmq.Channel()
 
-	// Declare fanout exchange for notifications
 	err := ch.ExchangeDeclare(
-		"notifications_fanout", // name
-		"fanout",               // type
-		true,                   // durable
-		false,                  // auto-deleted
-		false,                  // internal
-		false,                  // no-wait
-		nil,                    // arguments
+		"notifications_fanout",
+		"fanout",
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %w", err)
 	}
 
-	// Declare queue with auto-generated name (exclusive)
 	queue, err := ch.QueueDeclare(
-		"",    // name - empty means auto-generate
-		false, // durable
-		true,  // delete when unused
-		true,  // exclusive
-		false, // no-wait
-		nil,   // arguments
+		"",
+		false,
+		true,
+		true,
+		false,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
-	// Bind queue to exchange
 	err = ch.QueueBind(
-		queue.Name,             // queue name
-		"",                     // routing key (empty for fanout)
-		"notifications_fanout", // exchange
-		false,                  // no-wait
-		nil,                    // arguments
+		queue.Name,
+		"",
+		"notifications_fanout",
+		false,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind queue: %w", err)
@@ -65,13 +62,13 @@ func NewNotificationConsumer(rabbitmq *rabbitmq.RabbitMQ) (*NotificationConsumer
 
 func (c *NotificationConsumer) Consume(ctx context.Context) (<-chan *StatusUpdateMessage, error) {
 	msgs, err := c.channel.Consume(
-		c.queue.Name, // queue
-		"",           // consumer
-		false,        // auto-ack
-		false,        // exclusive
-		false,        // no-local
-		false,        // no-wait
-		nil,          // args
+		c.queue.Name,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume messages: %w", err)
@@ -92,13 +89,14 @@ func (c *NotificationConsumer) Consume(ctx context.Context) (<-chan *StatusUpdat
 
 				var statusMsg StatusUpdateMessage
 				if err := json.Unmarshal(msg.Body, &statusMsg); err != nil {
-					// Log error but don't requeue malformed messages
 					fmt.Printf("Failed to unmarshal message: %v\n", err)
-					msg.Nack(false, false) // Discard message
+					err := msg.Nack(false, false)
+					if err != nil {
+						return
+					}
 					continue
 				}
 
-				// Add delivery tag for acknowledgement
 				statusMsg.DeliveryTag = msg.DeliveryTag
 				messages <- &statusMsg
 			}

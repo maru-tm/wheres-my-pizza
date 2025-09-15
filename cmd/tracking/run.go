@@ -54,7 +54,6 @@ func Run(ctx context.Context, pgxPool *pgxpool.Pool, rabbitmq interface{}, port 
 		Handler: mux,
 	}
 
-	// Graceful shutdown
 	go func() {
 		<-ctx.Done()
 		logger.Log(logger.INFO, "tracking-service", "shutdown_initiated", "received termination signal, shutting down...", rid, nil, nil)
