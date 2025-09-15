@@ -19,16 +19,15 @@ func NewWorkerRepository(db *pgxpool.Pool) *WorkerRepository {
 
 func (r *WorkerRepository) CreateOrUpdateWorker(ctx context.Context, name string, workerType string, orderTypes []string) (*model.Worker, error) {
 	query := `
-		INSERT INTO workers (name, type, status, last_seen, orders_processed)
-		VALUES ($1, $2, 'online', NOW(), 0)
-		ON CONFLICT (name) 
-		DO UPDATE SET 
-			type = EXCLUDED.type,
-			status = 'online',
-			last_seen = NOW(),
-			orders_processed = workers.orders_processed
-		RETURNING id, name, type, status, last_seen, orders_processed
-	`
+        INSERT INTO workers (name, type, status, last_seen, orders_processed)
+        VALUES ($1, $2, 'online', NOW(), 0)
+        ON CONFLICT (name) 
+        DO UPDATE SET 
+            type = EXCLUDED.type,
+            status = 'online',
+            last_seen = NOW()
+        RETURNING id, name, type, status, last_seen, orders_processed
+    `
 
 	var worker model.Worker
 	err := r.db.QueryRow(ctx, query, name, workerType).Scan(
